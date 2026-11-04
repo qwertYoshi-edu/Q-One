@@ -3,7 +3,7 @@ import {
     screens, mainScreen, views, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     addToReviewBtn, modeIndicator, postAnswerButtons, nextProblemBtn, retryCurrentProblemBtn,
     selfGradingContainer, selfGradingInfo, selfGradeCorrectBtn, selfGradeIncorrectBtn,
-    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput
+    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput,
 } from './dom.js';
 
 // 名前衝突を防ぐため「DB」という大文字の変数名でインポート
