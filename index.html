@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Q-One | 一問一答トレーニング</title>
+    
+    <link rel="icon" href="./assets/icons/icon-v4-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="./assets/icons/icon-v4-512.png">
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.3/dist/mp4box.all.min.js"></script>
+
+    <style>
+        :root {
+            --primary-color: #34D399;
+            --primary-hover: #10B981;
+            --secondary-color: #6B7280;
+            --secondary-hover: #4B5563;
+            
+            --success-color: #34D399;
+            --success-bg: #ECFDF5;
+            --success-text-on-bg: #065F46;
+
+            --danger-color: #EF4444;
+            --danger-bg: #FEF2F2;
+            --danger-text-on-bg: #B91C1C;
+            
+            --warning-color: #FBBF24;
+            --star-color: #FBBF24;
+
+            --background-color: #ffffff;
+            --light-bg: #F3F4F6;
+            --text-color: #1F2937;
+            
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            
+            --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+            --accent-color: var(--primary-color);
+            
+            --radius-lg: 16px;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+
+            --pack-add-bg: #FCFDFC;
+            --pack-add-border: #A7E8CE;
+            --pack-add-icon-bg: #EAFBF4;
+            --pack-add-icon-border: #D0F4E5;
+            --pack-card-selected-bg: #F7FEFA;
+            --retry-border: #A7E8CE;
+            --retry-color: #047857;
+            --retry-hover-bg: #D9FBEA;
+            --separator-color: #CBD5E1;
+            --input-bg: var(--card-bg);
+            --input-color: var(--text-color);
+
+            /* モックアップ用テーマカラー */
+            --card-blue: #3B82F6;
+            --card-red: #EF4444;
+            --card-green: #10B981;
+            --card-yellow: #F59E0B;
+            --card-purple: #8B5CF6;
+        }
+        
+        /* ===== ダークモード用テーマ変数 ===== */
+        [data-theme="dark"] {
+            /* 彩度を下げた、落ち着いた無彩色寄りのダークテーマ */
+            --background-color: #121212;
+            --card-bg: #1E1E1E;
+            --text-color: #E5E7EB;
+            --secondary-color: #9CA3AF;
+            --border-color: #333333;
+            --light-bg: #2C2C2C;
+            --success-bg: #064E3B;
+            --success-text-on-bg: #A7F3D0;
+            --danger-bg: #4A1515;
+            --danger-text-on-bg: #FECACA;
+            
+            /* 新規追加・変数化した色 */
+            --pack-add-bg: #1A1A1A;
+            --pack-add-border: #2C5E47;
+            --pack-add-icon-bg: #113626;
+            --pack-add-icon-border: #164933;
+            --pack-card-selected-bg: #162B21;
+            --retry-border: #2C5E47;
+            --retry-color: #6EE7B7;
+            --retry-hover-bg: #113626;
+            --separator-color: #4B5563;
+            --input-bg: #1E1E1E;
+            --input-color: #E5E7EB;
+        }
+
+        * { box-sizing: border-box; }
+
+        html {
+            font-size: 16px;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        body {
+            font-family: var(--font-family);
+            margin: 0;
+            padding: 16px;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            min-height: 100dvh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1440px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2000;
+        }
+
+        .screen {
+            display: none;
+            width: 100%;
+            flex-direction: column;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .screen.active { display: flex; }
+        .screen.visible { opacity: 1; }
+
+        .centered-content {
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        /* ===== ホーム（設定）画面 新デザイン ===== */
+        #setup-screen {
+            display: none;
+            width: 100%;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #setup-screen.active { display: block; }
+        #setup-screen.visible { opacity: 1; }
+
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .app-brand { display: flex; align-items: center; gap: .8rem; }
+        .app-logo { width: 128px; height: 36px; color: var(--primary-color); flex-shrink: 0; }
+        .app-title { margin: 0; font-size: clamp(1.8rem, 4vw, 2.4rem); font-weight: 700; letter-spacing: .5px; }
+        .app-actions { display: flex; align-items: center; gap: .5rem; }
+        .app-actions .icon-btn {
+            width: 44px; height: 44px; min-height: 44px; flex-shrink: 0;
+            padding: 0; border: 1px solid transparent; border-radius: 50%;
+            color: var(--secondary-color); background: transparent;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .app-actions .icon-btn:hover { background-color: var(--light-bg); color: var(--text-color); }
+        .app-actions .icon-btn svg { width: 22px; height: 22px; }
+
+        .app-description {
+            margin: 0 auto 1.5rem;
+            text-align: center;
+            color: var(--secondary-color);
+            font-size: clamp(1rem, 2.2vw, 1.15rem);
+            line-height: 1.6;
+        }
+
+        .input-section { background: var(--card-bg); border-radius: var(--radius-lg); margin-bottom: 1.5rem; }
+        .nav-item { user-select: none; }
+        .nav-item svg { width: 22px; height: 22px; flex-shrink: 0; }
+        .panel { display: none; }
+        
+        #mode-text:checked ~ .input-panels #panel-text,
+        #mode-file:checked ~ .input-panels #panel-file,
+        #mode-pack:checked ~ .input-panels #panel-pack,
+        #mode-history:checked ~ .input-panels #panel-history { display: block; }
+
+        /* タブナビゲーション */
+        .input-nav {
+            display: flex;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 1.5rem;
+            overflow-x: auto;
+            scrollbar-width: thin;
+        }
+        .input-nav .nav-item {
+            flex: 1; min-width: 140px; display: flex; justify-content: center; align-items: center;
+            gap: .6rem; padding: 1rem .5rem; cursor: pointer;
+            border-bottom: 3px solid transparent; margin-bottom: -2px;
+            font-weight: 600; color: var(--secondary-color); transition: color .2s, border-color .2s;
+            white-space: nowrap;
+        }
+        .input-nav .nav-item:hover { color: var(--text-color); }
+        #mode-text:checked ~ .input-nav [for="mode-text"],
+        #mode-file:checked ~ .input-nav [for="mode-file"],
+        #mode-pack:checked ~ .input-nav [for="mode-pack"],
+        #mode-history:checked ~ .input-nav [for="mode-history"] {
+            border-bottom-color: var(--primary-color); color: var(--primary-color);
+        }
+
+        #input-text {
+            width: 100%; height: 240px; padding: 1.2rem;
+            border: 1px solid var(--border-color); border-radius: var(--radius-md);
+            font: 1rem/1.6 var(--font-family); resize: vertical; background: var(--card-bg); color: var(--text-color);
+        }
+        #input-text:focus { border-color: var(--primary-color); outline: none; }
+
+        /* テキストエリア直下のアクションボタン */
+        .text-actions { display: flex; gap: 10px; margin-top: 12px; }
+        .text-actions button { padding: 0.8rem 1rem; font-size: 0.95rem; min-height: unset; flex: 1; }
+
+        .file-drop-area {
+            min-height: 240px; padding: 3rem 1rem; border: 2px dashed var(--border-color);
+            border-radius: var(--radius-md); text-align: center; background: var(--light-bg);
+            color: var(--secondary-color); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 1rem; position: relative;
+        }
+        .file-drop-area svg { width: 54px; height: 54px; color: #9CA3AF; }
+        .file-drop-area p { margin: 0; font-size: 1.05rem; }
+        .file-input-real { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .file-drop-area .btn-secondary { pointer-events: none; width: auto; padding: 10px 20px; min-height: unset; }
+
+        /* パックパネル */
+        .pack-panel-content { width: 100%; }
+        .pack-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1.2rem;
+            max-height: 560px;
+            overflow-y: auto;
+            padding: .5rem;
+        }
+        .pack-add-tile {
+            min-height: 235px; width: 100%; padding: 1.5rem 1rem; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            gap: .7rem; color: var(--secondary-color); background: #FCFDFC;
+            border: 1.5px dashed #A7E8CE; border-radius: var(--radius-md);
+            text-align: center; box-shadow: none; cursor: pointer;
+            transition: border-color .18s, background-color .18s, transform .1s;
+        }
+        .pack-add-tile:hover { background: var(--success-bg); border-color: var(--primary-color); opacity: 1; }
+        .pack-add-icon {
+            width: 48px; height: 48px; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; color: var(--primary-color);
+            background: #EAFBF4; border: 1px solid #D0F4E5;
+        }
+        .pack-add-icon svg { width: 25px; height: 25px; }
+        .pack-add-title { color: var(--text-color); font-size: 1rem; font-weight: 700; }
+        .pack-add-description { color: var(--secondary-color); font-size: .82rem; font-weight: 400; }
+        .pack-file-status { margin: .25rem .5rem .5rem; min-height: 1.2em; text-align: left; font-size: .82rem; color: var(--secondary-color); }
+        .pack-card {
+            background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+            overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 2px 8px rgba(0,0,0,.04); text-align: left;
+            cursor: pointer; outline: none; transition: border-color .18s, box-shadow .18s, transform .18s;
+        }
+        .pack-card:hover { box-shadow: 0 8px 16px rgba(0,0,0,.08); transform: translateY(-2px); }
+        .pack-card:focus-visible, .pack-card.is-selected { border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(52,211,153,.22); }
+        .pack-card.is-selected { background: #F7FEFA; }
+        .pack-card-header { background: var(--card-theme); padding: 1.2rem; color: white; position: relative; }
+        .pack-card-tag { display: inline-block; background: rgba(0,0,0,.2); padding: 3px 8px; border-radius: 4px; font-size: .75rem; font-weight: 600; margin-bottom: 1rem; letter-spacing: .5px; }
+        .pack-card-header-icon { position: absolute; top: 1.2rem; right: 1.2rem; width: 22px; height: 22px; opacity: .9; }
+        .pack-card-title { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: .2px; overflow-wrap: anywhere; }
+        .pack-card-body { flex: 1; padding: 2rem 1rem; display: flex; justify-content: center; align-items: center; gap: 1rem; color: var(--card-theme); }
+        .pack-card-body svg { width: 44px; height: 44px; }
+        .pack-card-count-wrapper { display: flex; align-items: baseline; }
+        .pack-card-count { font-size: 3.2rem; font-weight: 800; line-height: .8; letter-spacing: -1.5px; }
+        .pack-card-unit { margin-left: 4px; font-size: 1.1rem; font-weight: 700; }
+        .pack-card-footer { padding: 1rem 1.2rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .75rem; font-weight: 700; color: var(--secondary-color); }
+        .pack-card-status { letter-spacing: .3px; }
+        .card-theme-blue { --card-theme: var(--card-blue); }
+        .card-theme-red { --card-theme: var(--card-red); }
+        .card-theme-green { --card-theme: var(--card-green); }
+        .card-theme-yellow { --card-theme: var(--card-yellow); }
+        .card-theme-purple { --card-theme: var(--card-purple); }
+
+        /* 履歴リスト */
+        .history-list {
+            max-height: 520px; overflow-y: auto;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+        .history-entry {
+            display: grid; grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center; gap: .8rem 1rem; padding: 1.05rem .9rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .history-entry:last-child { border-bottom: 0; }
+        .history-entry-main { min-width: 0; }
+        .history-date { display: flex; align-items: center; gap: .45rem; margin: 0 0 .28rem; color: var(--secondary-color); font-size: .9rem; line-height: 1.45; }
+        .history-date svg { width: 17px; height: 17px; flex-shrink: 0; }
+        .history-title-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .6rem; }
+        .history-title-row h3 { margin: 0; color: var(--text-color); font-size: 1.02rem; line-height: 1.5; font-weight: 700; overflow-wrap: anywhere; }
+        .history-range { color: var(--secondary-color); font-size: .9rem; font-weight: 500; }
+        .history-result { display: flex; flex-wrap: wrap; gap: .45rem; margin: .25rem 0 0; font-size: .84rem; color: var(--secondary-color); }
+        .history-result-separator { color: #CBD5E1; }
+        .history-retry-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .6rem; padding: 0; }
+        .retry-action { width: auto; min-height: 38px; padding: .55rem .85rem; border: 1px solid #A7E8CE; border-radius: var(--radius-sm); background: var(--success-bg); color: #047857; font-size: .86rem; font-weight: 600; white-space: nowrap; }
+        .retry-action:hover { background: #D9FBEA; opacity: 1; }
+        .retry-action-secondary { background: var(--card-bg); border-color: var(--border-color); color: var(--secondary-color); }
+        .retry-action-secondary:hover { background: var(--light-bg); opacity: 1; }
+
+        /* 設定スタック */
+        .settings-stack { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+        .settings-wrapper {
+            background-color: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 1.6rem;
+            margin-bottom: 0;
+        }
+        .settings-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            align-items: center;
+        }
+        .setting-item { text-align: left; min-width: 0; }
+        .setting-item > label:not(.setting-item-row) {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+            display: block;
+        }
+
+        .start-buttons-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 0;
+        }
+        .start-buttons-container button {
+            padding-top: 1.1rem;
+            padding-bottom: 1.1rem;
+            font-size: 1.1rem;
+        }
+
+        /* フォームコントロール */
+        .setting-item-row.shuffle-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: .8rem;
+            cursor: pointer;
+            padding: 0.4rem 0;
+        }
+        .shuffle-label {
+            font-size: 1rem;
+            font-weight: 500;
+            user-select: none;
+        }
+        .custom-toggle-input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .custom-checkbox {
+            width: 22px;
+            height: 22px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--card-bg);
+            flex-shrink: 0;
+        }
+        .custom-checkbox::after {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%23fff' d='M6.564.75l-3.59 3.612-1.538-1.55L0 4.26 2.974 7.25 8 2.193z'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .custom-toggle-input:checked ~ .custom-checkbox {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        .custom-toggle-input:checked ~ .custom-checkbox::after { opacity: 1; }
+
+        .importance-filter {
+            display: inline-flex;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            background-color: var(--card-bg);
+            width: 100%;
+        }
+        .importance-filter input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+        .importance-filter label {
+            flex: 1;
+            text-align: center;
+            padding: 0.6rem 0.4rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--secondary-color);
+            border-left: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+        .importance-filter label:first-of-type { border-left: none; }
+        .importance-filter input[type="radio"]:checked + label {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            outline: none;
+            margin: .6rem 0;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            background: var(--primary-color);
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 22px;
+            height: 22px;
+            background: var(--primary-color);
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+
+        button { 
+            padding: 0.9rem 1.2rem;
+            font-size: 1.05rem;
+            font-weight: 600;
+            border: none;
+            border-radius: var(--radius-md); 
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            width: 100%;
+            min-height: 48px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+        button:hover { opacity: 0.92; }
+        button:active { transform: scale(0.98); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+        .btn-secondary {
+            background-color: var(--card-bg);
+            color: var(--secondary-color);
+            border: 1px solid var(--border-color);
+        }
+        .btn-secondary:hover {
+            background-color: var(--light-bg);
+            border-color: #D1D5DB;
+        }
+        .btn-success { background-color: var(--success-color); color: white; }
+        
+        .btn-with-icon { display: inline-flex; align-items: center; justify-content: center; gap: 0.5em; }
+        .btn-with-icon svg { width: 1.25em; height: 1.25em; fill: currentColor; }
+
+        /* ===== デスクトップ＆モバイル レイアウトの切り替え ===== */
+        .input-section { display: contents; }
+
+/* ===== 共通: アクセシビリティ・はみ出し防止 ===== */
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+        
+        .app-description, .large-text, .small-text, #fill-content, .select-option-btn {
+            overflow-wrap: break-word;
+            word-break: auto-phrase; /* モダンブラウザ向け句読点考慮 */
+        }
+
+        /* ===== ロゴ調整 ===== */
+        .app-logo {
+            height: clamp(32px, 5vw, 44px);
+            width: auto;
+            display: block;
+            object-fit: contain;
+        }
+
+        /* ===== レイアウト微調整 (既存CSSの上書き含む) ===== */
+        #intermediate-screen {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 32px);
+            height: calc(100dvh - 32px);
+            overflow: hidden; /* 全体のはみ出しを防ぎ、内部要素だけスクロールさせる */
+        }
+
+        /* ===== 履歴タブ バッジデザイン ===== */
+        .history-entry {
+            display: flex; flex-direction: row; align-items: center; justify-content: space-between;
+            gap: 1rem; padding: 1.2rem; border-bottom: 1px solid var(--border-color);
+        }
+        .history-header { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem; }
+        .history-badge {
+            background-color: var(--light-bg); color: var(--secondary-color);
+            font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 12px;
+        }
+        .history-pack { background-color: #E0F2FE; color: #0369A1; }
+        [data-theme="dark"] .history-pack { background-color: #0C4A6E; color: #7DD3FC; }
+        .history-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 0.6rem; }
+        .history-title-row h3 { margin: 0; font-size: 1.1rem; color: var(--text-color); }
+        .history-range-badge {
+            font-size: 0.8rem; color: var(--secondary-color);
+            border: 1px solid var(--border-color); padding: 0.1rem 0.5rem; border-radius: 4px;
+        }
+        .history-stats { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.9rem; font-weight: 500; }
+        .history-stat-item { color: var(--secondary-color); }
+        .history-stat-item.highlight { color: var(--primary-color); font-weight: 700; }
+
+        /* ===== プロフィールモーダル用 ===== */
+        .profile-header { display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem; }
+        .profile-avatar {
+            width: 64px; height: 64px; background: var(--light-bg); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; color: var(--secondary-color);
+        }
+        .profile-avatar svg { width: 36px; height: 36px; }
+        .profile-name-container { position: relative; display: flex; align-items: center; flex-grow: 1; }
+        .profile-name-input {
+            font-size: 1.5rem; font-weight: 700; color: var(--text-color);
+            border: none; border-bottom: 2px solid transparent; background: transparent;
+            padding: 0.2rem 2rem 0.2rem 0.2rem; width: 100%; max-width: 250px;
+            font-family: inherit; transition: border-color 0.2s;
+        }
+        .profile-name-input:focus { outline: none; border-bottom-color: var(--primary-color); }
+        .profile-name-container .edit-icon {
+            position: absolute; right: 0.5rem; width: 20px; height: 20px;
+            color: var(--secondary-color); pointer-events: none;
+        }
+        .profile-stats-title {
+            font-size: 1.1rem; color: var(--secondary-color); margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;
+        }
+        .profile-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; }
+        .stat-card {
+            background: var(--light-bg); padding: 1.5rem 1rem; border-radius: var(--radius-md); text-align: center;
+        }
+        .stat-value { font-size: 2rem; font-weight: 800; color: var(--primary-color); line-height: 1; margin-bottom: 0.5rem; }
+        .stat-label { font-size: 0.85rem; color: var(--secondary-color); font-weight: 600; }
+
+        @media (min-width: 900px) {
+            body { padding: clamp(24px, 3.5vw, 56px); align-items: flex-start; }
+            .settings-stack {
+                /* ボタン群を下に固定するため align-self を変更 */
+                align-self: stretch;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between; 
+            }
+            #home-screen {
+                display: grid;
+                grid-template-columns: minmax(0, 1.65fr) minmax(300px, .9fr);
+                grid-template-rows: auto auto auto minmax(390px, 1fr);
+                column-gap: clamp(28px, 5vw, 72px);
+                row-gap: 0;
+                min-height: calc(100dvh - 2 * clamp(24px, 3.5vw, 56px));
+                align-content: start;
+            }
+            .app-header { grid-column: 1 / -1; grid-row: 1; margin-bottom: 1.2rem; padding: 0 0 1rem; }
+            .app-description { grid-column: 1 / -1; grid-row: 2; text-align: center; margin: 0 0 1.35rem; }
+            .input-nav { grid-column: 1 / -1; grid-row: 3; margin-bottom: 1.25rem; overflow: visible; }
+            .input-nav .nav-item { min-width: 0; padding: 1rem .65rem; }
+            .input-panels { grid-column: 1; grid-row: 4; min-width: 0; position: relative; min-height: 390px; }
+            .panel { display: none; width: 100%; }
+            #mode-text:checked ~ .input-panels #panel-text,
+            #mode-file:checked ~ .input-panels #panel-file,
+            #mode-pack:checked ~ .input-panels #panel-pack,
+            #mode-history:checked ~ .input-panels #panel-history { display: block; animation: panel-enter .26s ease both; }
+            #input-text { height: clamp(290px, 38vh, 520px); min-height: 290px; resize: none; }
+            .file-drop-area { min-height: clamp(360px, 48vh, 620px); }
+            .pack-grid { max-height: clamp(360px, 48vh, 620px); grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1rem; padding: .2rem .35rem .5rem .1rem; }
+            .pack-add-tile { min-height: 210px; }
+            .history-list { max-height: clamp(360px, 48vh, 620px); }
+            .settings-stack { grid-column: 2; grid-row: 4; align-self: start; display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+            .settings-wrapper { margin: 0; padding: clamp(1.1rem, 2vw, 1.6rem); }
+            .settings-row { display: flex; flex-direction: column; align-items: stretch; gap: 1.25rem; }
+            .start-buttons-container { grid-template-columns: 1fr; gap: .75rem; margin: 0; }
+            .start-buttons-container button { padding: .85rem 1rem; font-size: 1rem; }
+            .importance-filter label { padding: .65rem .3rem; }
+            
+            .mobile-floating-action { display: none; }
+            .mobile-settings-header { display: none; }
+        }
+        @keyframes panel-enter { from { opacity: .45; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+
+        @media (max-width: 899px) {
+            body { display: block; padding: 18px 16px 28px; }
+            .container { max-width: 680px; margin: 0 auto; }
+            #home-screen { display: flex; flex-direction: column; gap: 0; }
+            .app-header { margin-bottom: 1rem; padding-bottom: .85rem; }
+            .app-description { text-align: left; margin-bottom: 1.1rem; font-size: 1rem; }
+            .input-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; border: 0; margin: 0 0 1rem; overflow: visible; }
+            .input-nav .nav-item { min-width: 0; min-height: 66px; padding: .75rem .55rem; gap: .55rem; justify-content: flex-start; border: 1px solid var(--border-color); border-radius: 12px; margin: 0; white-space: normal; text-align: left; font-size: .9rem; background: #fff; }
+            .input-nav .nav-item svg { width: 20px; height: 20px; }
+            #mode-text:checked ~ .input-nav [for="mode-text"],
+            #mode-file:checked ~ .input-nav [for="mode-file"],
+            #mode-pack:checked ~ .input-nav [for="mode-pack"],
+            #mode-history:checked ~ .input-nav [for="mode-history"] { border-color: var(--primary-color); background: var(--success-bg); color: #059669; }
+            .input-panels { min-width: 0; margin-bottom: 1rem; }
+            .panel { display: none; }
+            #mode-text:checked ~ .input-panels #panel-text,
+            #mode-file:checked ~ .input-panels #panel-file,
+            #mode-pack:checked ~ .input-panels #panel-pack,
+            #mode-history:checked ~ .input-panels #panel-history { display: block; animation: mobile-panel-enter .2s ease both; }
+            #input-text { height: 180px; min-height: 180px; padding: 1rem; resize: vertical; }
+            .text-actions { flex-direction: column; gap: 8px; }
+            .file-drop-area { min-height: 220px; padding: 2rem 1rem; }
+            .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; max-height: none; padding: 0; }
+            .pack-add-tile { min-height: 190px; padding: 1rem .65rem; }
+            .pack-card-header { padding: .9rem; }
+            .pack-card-title { font-size: 1rem; }
+            .pack-card-body { padding: 1.4rem .6rem; gap: .55rem; }
+            .pack-card-count { font-size: 2.25rem; }
+            .pack-card-body svg { width: 30px; height: 30px; }
+            .pack-card-footer { padding: .75rem .7rem; align-items: flex-start; flex-direction: column; }
+            .history-list { max-height: none; border-radius: 12px; overflow: hidden; }
+            .history-entry { padding: .95rem .8rem .75rem; }
+            .history-retry-actions { padding-left: 0; }
+            .settings-stack { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+            .settings-wrapper { margin: 0; padding: 1.1rem; }
+            .settings-row { grid-template-columns: 1fr; gap: 1rem; }
+            .start-buttons-container { grid-template-columns: 1fr; gap: .65rem; margin: 0; }
+            .start-buttons-container button { padding: .9rem 1rem; }
+                        body { padding-bottom: 90px; } /* フローティングボタンが被らないように */
+            
+            /* 履歴タブ選択時は「設定へ進む」ボタンを隠す */
+            #mode-history:checked ~ #mobile-settings-fab { display: none; }
+
+            .mobile-floating-action {
+                position: fixed; bottom: 20px; left: 16px; right: 16px;
+                z-index: 900; display: flex; justify-content: center;
+            }
+            .mobile-floating-action button {
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+                border-radius: 99px; /* ピル型 */
+                font-size: 1.1rem; padding: 1.1rem 2rem; width: auto; min-width: 240px;
+            }
+            
+            /* .settings-stack をフルスクリーンのオーバーレイシートに変更 */
+            .settings-stack {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background-color: var(--background-color); z-index: 1000;
+                padding: 16px 20px; overflow-y: auto;
+                transform: translateY(100%); opacity: 0;
+                transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s;
+                display: flex; flex-direction: column; justify-content: flex-start;
+            }
+            .settings-stack.is-open {
+                transform: translateY(0); opacity: 1;
+            }
+            
+            .mobile-settings-header {
+                display: flex; justify-content: space-between; align-items: center;
+                margin-bottom: 1.2rem; padding-bottom: 0.8rem;
+                border-bottom: 1px solid var(--border-color);
+            }
+            .mobile-settings-header h2 { margin: 0; font-size: 1.3rem; color: var(--text-color); }
+            .mobile-settings-header .icon-btn { 
+                background: transparent; border: none; font-size: 2.2rem; 
+                color: var(--secondary-color); cursor: pointer; padding: 0; 
+                width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; 
+            }
+        }
+        @keyframes mobile-panel-enter { from { opacity: .5; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        @media (max-width: 420px) {
+            .pack-grid { grid-template-columns: 1fr 1fr; }
+            .pack-add-tile { min-height: 190px; padding: 1rem .6rem; }
+            .pack-card-body { padding: 1.35rem .65rem; gap: .6rem; }
+            .pack-card-count { font-size: 2.6rem; }
+            .pack-card-body svg { width: 35px; height: 35px; }
+            .retry-action { flex: 1 1 100%; width: 100%; }
+        }
+        @media (max-width: 380px) {
+            .app-title { font-size: 1.75rem; }
+            .app-actions { gap: .1rem; }
+            .app-actions .icon-btn { width: 38px; height: 38px; }
+            .input-nav .nav-item { font-size: .82rem; }
+            .pack-grid { grid-template-columns: 1fr; }
+            .pack-add-tile { min-height: 145px; }
+            .pack-card-footer { flex-direction: row; align-items: center; }
+        }
+
+        /* ===== 出題画面・結果画面・モーダル（既存スタイル維持） ===== */
+        #intermediate-screen { position: relative; }
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr;
+            grid-template-rows: minmax(0, 1fr);
+            gap: 2rem;
+            height: 100%;
+            width: 100%;
+        }
+        .incorrect-list-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            padding-right: 2rem;
+            min-height: 0;
+        }
+        .incorrect-list-container h3 {
+            margin: 0 0 1rem 0;
+            text-align: left;
+            flex-shrink: 0;
+            font-size: 1.35rem;
+        }
+        #incorrect-list, #incorrect-list-main {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+            text-align: left;
+            flex-grow: 1;
+        }
+        #incorrect-list li, #incorrect-list-main li {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 0.85rem 0;
+            border-bottom: 1px solid var(--light-bg);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        #incorrect-list li:last-child, #incorrect-list-main li:last-child { border-bottom: none; }
+        .incorrect-item-content {
+            display: flex;
+            gap: 0.8rem;
+            align-items: flex-start;
+            min-width: 0;
+        }
+        .incorrect-item-importance {
+            color: var(--star-color);
+            font-size: 0.95rem;
+            flex-shrink: 0;
+            letter-spacing: 1px;
+            margin-top: 2px;
+        }
+        .incorrect-item-text { word-break: break-word; }
+        .incorrect-item-answer {
+            color: var(--primary-color);
+            font-weight: 600;
+            text-align: right;
+            flex-shrink: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 160px;
+        }
+
+        .results-summary-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+        .results-summary-container h1 { font-size: clamp(1.8rem, 4vw, 2.2rem); margin: 0 0 1.2rem; }
+        .results-visual {
+            width: 160px; height: 160px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: conic-gradient(var(--progress-color, var(--primary-color)) calc(var(--percentage) * 1%), var(--light-bg) 0);
+            margin-bottom: 1.5rem; position: relative;
+        }
+        .results-visual::before {
+            content: ''; position: absolute; width: 84%; height: 84%;
+            background: var(--card-bg); border-radius: 50%;
+        }
+        #results-percentage {
+            font-size: 2.6rem; font-weight: 700; z-index: 1;
+            color: var(--progress-color, var(--primary-color));
+        }
+        #results-details { font-size: 1.15rem; color: var(--secondary-color); margin-bottom: 1.8rem; }
+        .results-options {
+            display: flex; flex-direction: column; gap: 0.9rem;
+            width: 100%; max-width: 340px; margin: 0 auto;
+        }
+
+        #end-screen { gap: 1.2rem; }
+        #end-screen h1 {
+            font-weight: 700; font-size: clamp(2.2rem, 5vw, 3rem); margin: 0;
+            transform: scale(1.3); opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        #end-screen.is-animating h1 { transform: scale(1); opacity: 1; }
+        #end-screen .results-summary {
+            flex-grow: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        #end-screen .results-summary p { font-size: 1.2rem; color: var(--secondary-color); margin: 0.6rem 0 1.2rem; }
+        #end-screen .results-visual {
+            width: 160px; height: 160px; margin-bottom: 0.8rem;
+            --progress-color: var(--success-color);
+        }
+        #end-screen #end-percentage { font-weight: 700; font-size: 2.6rem; color: var(--success-color); z-index: 1; }
+        #end-screen .results-options { margin: 0 auto; max-width: 340px; width: 100%; }
+
+        #main-screen {
+            justify-content: space-between;
+            height: calc(100vh - 32px);
+            height: calc(100dvh - 32px);
+            max-width: 1000px;
+            margin: 0 auto;
+            position: relative;
+            overflow-x: hidden;
+        }
+        #progress-area { flex-shrink: 0; padding-bottom: 0.8rem; }
+        #content-area {
+            flex-grow: 1; display: flex; align-items: center; justify-content: center;
+            flex-direction: column; overflow-y: auto; padding: 1rem 0; width: 100%;
+        }
+        #action-area {
+            flex-shrink: 0; min-height: 96px; display: flex;
+            flex-direction: column; justify-content: flex-end; padding-top: 0.8rem;
+        }
+        
+        .main-header-controls { display: flex; align-items: center; gap: 1rem; }
+        .main-header-buttons { display: flex; gap: 0.5rem; }
+        .header-btn {
+            width: 42px; height: 42px; padding: 0; display: flex; align-items: center; justify-content: center;
+            border-radius: var(--radius-md); background-color: var(--card-bg); border: 1px solid var(--border-color);
+            color: var(--secondary-color); cursor: pointer;
+        }
+        .header-btn:hover { background-color: var(--light-bg); color: var(--text-color); }
+        .header-btn svg { width: 22px; height: 22px; }
+
+        #progress-bar-container {
+            width: 100%; height: 10px; background-color: var(--light-bg);
+            border-radius: 5px; overflow: hidden; margin-bottom: 12px;
+        }
+        #progress-bar { width: 0%; height: 100%; background-color: var(--primary-color); border-radius: 5px; transition: width 0.4s ease; }
+        .progress-info { display: flex; justify-content: space-between; align-items: center; }
+        .progress-info-left { display: flex; align-items: center; gap: 1rem; }
+        #progress-text { font-size: 1.05rem; font-weight: 500; color: var(--secondary-color); }
+        #mistake-counter { font-size: 1.05rem; color: var(--danger-color); font-weight: 600; visibility: hidden; }
+        #mistake-counter.visible { visibility: visible; }
+        #importance-display { font-size: 1.3rem; color: var(--star-color); letter-spacing: 2px; }
+        #mode-indicator { text-align: center; color: var(--secondary-color); font-size: 0.95rem; margin-top: 6px; height: 1.2rem; font-weight: 500; }
+
+        .large-text {
+            font-size: clamp(1.5rem, 3.8vw, 2.2rem); font-weight: 700; margin-bottom: 1rem; line-height: 1.4;
+            word-break: break-word; display: flex; align-items: center; justify-content: center; gap: 0.8rem; width: 100%;
+        }
+        .small-text {
+            font-size: clamp(1.1rem, 2.4vw, 1.35rem); color: var(--secondary-color); margin-bottom: 1.6rem;
+            width: 100%; word-break: break-word; line-height: 1.6;
+        }
+        .review-indicator {
+            color: var(--danger-text-on-bg); background-color: var(--danger-bg); font-size: 0.85rem;
+            font-weight: bold; padding: 4px 9px; border-radius: var(--radius-sm); vertical-align: middle; flex-shrink: 0;
+        }
+        .problem-view { width: 100%; transition: opacity 300ms ease-out, transform 300ms ease-out; }
+        .problem-view.is-entering { opacity: 0; transform: translateY(18px); }
+
+        .final-check-answer { font-weight: 600; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding: 2px 6px; }
+        #select-options-container {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem; margin-top: 1.5rem; width: 100%;
+        }
+        #fill-content {
+            text-align: center; line-height: 2.2; font-size: clamp(1.15rem, 2.6vw, 1.4rem);
+            margin-bottom: 1.5rem; width: 100%; word-break: break-word;
+        }
+        .fill-prefilled { font-weight: 600; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding: 4px 8px; margin: 0 4px; }
+
+        .input-form { max-width: 550px; width: 100%; margin: 0 auto; }
+        .text-input {
+            width: 100%; padding: 0.95rem 1rem; font-size: 1.15rem; border: 2px solid var(--border-color);
+            border-radius: var(--radius-md); box-sizing: border-box; margin-bottom: 1rem; text-align: center;
+            transition: border-color 0.2s; font-family: var(--font-family);
+        }
+        .text-input:focus { border-color: var(--primary-color); outline: none; }
+        
+        .fill-input { 
+            padding: 4px 8px; font-size: 1.15rem; border: none; border-bottom: 2px solid var(--primary-color); 
+            min-width: 70px; max-width: 90%; width: 130px; text-align: center; margin: 0 5px; background: transparent; 
+            transition: all 0.2s; border-radius: 4px 4px 0 0; box-sizing: border-box; font-family: var(--font-family);
+        }
+        .fill-input.correct, .fill-input.correct:disabled { border-bottom-color: var(--success-color); background-color: var(--success-bg); color: var(--success-text-on-bg); opacity: 1; }
+        .fill-input.incorrect, .fill-input.incorrect:disabled { border-bottom-color: var(--danger-color); background-color: var(--danger-bg); color: var(--danger-text-on-bg); opacity: 1; }
+        .fill-input.grading-focus { outline: 3px solid var(--warning-color); background-color: #FEF3C7 !important; animation: pulse-border 1.5s infinite; }
+        @keyframes pulse-border { 0%, 100% { outline-color: var(--warning-color); } 50% { outline-color: transparent; } }
+
+        #feedback-container {
+            opacity: 0; transform: translateY(8px); transition: opacity 0.3s, transform 0.3s;
+            margin-bottom: 1rem; padding: 1rem 1.2rem; border-radius: var(--radius-md); font-weight: 600;
+            font-size: 1.1rem; display: flex; align-items: center; justify-content: center; gap: 0.8rem; position: relative;
+        }
+        #feedback-container.visible { opacity: 1; transform: translateY(0); }
+        #feedback-container.correct { color: var(--success-text-on-bg); background-color: var(--success-bg); border: 1px solid var(--success-color); }
+        #feedback-container.incorrect { color: var(--danger-text-on-bg); background-color: var(--danger-bg); border: 1px solid var(--danger-color); }
+        #feedback-container.neutral { color: var(--text-color); background-color: var(--light-bg); border: 1px solid var(--border-color); }
+        #feedback-text::before { font-weight: bold; font-size: 1.3em; margin-right: 0.6rem; }
+        #feedback-container.correct #feedback-text::before { content: '✓'; }
+        #feedback-container.incorrect #feedback-text::before { content: '×'; }
+        #feedback-container.neutral #feedback-text::before { content: 'ℹ'; }
+        
+        #add-to-review-btn {
+            font-size: 0.9rem; padding: 6px 12px; width: auto; position: absolute; right: 1rem; top: 50%;
+            transform: translateY(-50%); background-color: var(--secondary-color); color: white; border-radius: 6px;
+        }
+        #add-to-review-btn:disabled { background-color: var(--border-color); color: var(--secondary-color); }
+
+        .select-option-btn {
+            background-color: var(--card-bg); color: var(--text-color); border: 2px solid var(--border-color);
+            font-weight: 500; font-size: 1.05rem; padding: 1rem; text-align: center;
+        }
+        .select-option-btn:hover { border-color: var(--primary-color); background-color: var(--success-bg); }
+        .select-option-btn.correct { background-color: var(--success-bg) !important; color: var(--success-text-on-bg); border-color: var(--success-color); }
+        .select-option-btn.incorrect { background-color: var(--danger-bg) !important; color: var(--danger-text-on-bg); border-color: var(--danger-color); }
+
+        .button-container { display: none; justify-content: center; gap: 1rem; }
+        .button-container.active { display: flex; }
+        #action-btn { display: none; max-width: 550px; margin: 0 auto; }
+        #action-btn.visible { display: flex; }
+
+        #self-grading-container {
+            flex-direction: column; gap: 0.9rem; background-color: var(--light-bg);
+            padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);
+        }
+        #self-grading-info { font-size: 1.1rem; font-weight: 600; color: var(--text-color); line-height: 1.6; word-break: break-word; }
+        .self-grading-btn-row { display: flex; gap: 1rem; width: 100%; }
+
+        /* ===== モーダル ===== */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000;
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s;
+            background: rgba(0,0,0,0.6);
+        }
+        .modal.active { opacity: 1; visibility: visible; }
+        .modal-overlay { position: absolute; width: 100%; height: 100%; }
+        .modal-content {
+            position: relative; background: var(--card-bg); padding: 2rem; border-radius: var(--radius-lg);
+            max-width: 660px; width: 90%; max-height: 85vh; overflow-y: auto; text-align: left;
+            transform: scale(0.95); transition: transform 0.3s; box-sizing: border-box;
+        }
+        .modal.active .modal-content { transform: scale(1); }
+        .modal-content h2 { margin-top: 0; font-size: 1.5rem; }
+        .modal-close-btn {
+            position: absolute; top: 0.8rem; right: 0.8rem; width: 44px; height: 44px; min-height: 44px;
+            border: none; background: transparent; font-size: 1.8rem; cursor: pointer; color: var(--secondary-color);
+            line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .modal-close-btn:hover { background-color: var(--light-bg); color: var(--text-color); }
+
+        /* 処理中（プログレス）モーダル専用スタイル */
+        .progress-modal-content { text-align: center; max-width: 400px; padding: 2.5rem 2rem; }
+        .progress-modal-content h3 { margin-top: 0; margin-bottom: 1rem; font-size: 1.3rem; }
+        .progress-modal-bar-bg {
+            width: 100%; height: 12px; background: var(--light-bg); border-radius: 6px;
+            overflow: hidden; margin-bottom: 1rem; border: 1px solid var(--border-color);
+        }
+        .progress-modal-bar-fill { height: 100%; width: 0%; background: var(--primary-color); transition: width 0.2s ease-out; }
+        .progress-modal-status { color: var(--secondary-color); font-size: 0.95rem; margin-bottom: 1.5rem; word-break: break-all; min-height: 1.5em; }
+        .cancel-btn { background: var(--danger-bg); color: var(--danger-text-on-bg); border: 1px solid var(--danger-color); font-size: 1rem; }
+        .cancel-btn:hover { background: #fee2e2; }
+
+        .help-section { margin-bottom: 1.8rem; }
+        .help-section h3 {
+            display: flex; align-items: center; gap: 0.5em; font-size: 1.15rem; margin-bottom: 0.8rem;
+            padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color);
+        }
+        .help-section h3 svg { width: 1.2em; height: 1.2em; color: var(--primary-color); flex-shrink: 0; }
+        .help-section p { margin: 0 0 0.8rem 0; color: var(--secondary-color); line-height: 1.6; font-size: 0.95rem; }
+        .help-section ol { font-size: 0.95rem; line-height: 1.7; }
+        .help-section code { background-color: var(--light-bg); padding: 2px 6px; border-radius: 4px; font-size: 0.95em; color: var(--text-color); font-weight: 600; }
+        
+        .help-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: 0.95rem; }
+        .help-table th, .help-table td { padding: 0.75rem 0.85rem; border: 1px solid var(--border-color); text-align: left; }
+        .help-table th { background-color: var(--light-bg); font-weight: 600; }
+        .help-table td:first-child { font-weight: 600; text-align: center; }
+        .help-table code { font-family: monospace; }
+        
+        .copy-example {
+            background-color: var(--light-bg); border: 1px solid var(--border-color); padding: 0.9rem;
+            border-radius: var(--radius-sm); font-family: monospace; font-size: 0.95rem; line-height: 1.6;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        #copy-textarea {
+            width: 100%; height: 250px; resize: vertical; box-sizing: border-box; margin-top: 1rem;
+            background-color: var(--light-bg); border: 1px solid var(--border-color); padding: 1rem;
+            border-radius: var(--radius-sm); font-family: monospace; font-size: 0.95rem; line-height: 1.5;
+        }
+
+        .list-toggle-btn, .list-overlay { display: none; }
+        
+        .incorrect-list-container-main {
+            position: fixed; left: 0; top: 0; width: 82vw; max-width: 400px; height: 100%;
+            background-color: var(--card-bg); z-index: 1002; transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out; padding: 1.5rem; box-sizing: border-box;
+            display: flex; flex-direction: column; box-shadow: 2px 0 12px rgba(0,0,0,0.1);
+        }
+        .incorrect-list-container-main h3 { margin: 0 0 1rem 0; text-align: left; flex-shrink: 0; font-size: 1.35rem; }
+        #incorrect-list-main { list-style: none; padding: 0; margin: 0 0 1rem; overflow-y: auto; text-align: left; flex-grow: 1; }
+        #interim-review-panel-btn { flex-shrink: 0; }
+        #main-screen.list-open .incorrect-list-container-main { transform: translateX(0); }
+        
+        #toggle-incorrect-list-btn-main {
+            display: flex; align-items: center; justify-content: center; position: fixed; left: 0px; top: 50%;
+            transform: translateY(-50%); z-index: 1003; width: 36px; height: 48px; min-height: 48px;
+            border-radius: 0 8px 8px 0; border: 1px solid var(--border-color); border-left: none;
+            background-color: var(--card-bg); font-size: 1.4rem; font-weight: bold; color: var(--primary-color);
+            cursor: pointer; transition: left 0.3s ease-in-out; padding: 0; padding-left: 2px;
+            box-shadow: 2px 0 6px rgba(0,0,0,0.06);
+        }
+        #main-screen.list-open #toggle-incorrect-list-btn-main { left: min(82vw, 400px); }
+
+        .list-overlay-main {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.4); z-index: 1001; opacity: 0;
+            transition: opacity 0.3s ease-in-out; pointer-events: none;
+        }
+        #main-screen.list-open .list-overlay-main { display: block; opacity: 1; pointer-events: auto; }
+
+        @media (max-width: 768px) {
+            #feedback-container { flex-direction: column; gap: 0.8rem; }
+            #add-to-review-btn { position: static; transform: none; width: auto; padding: 6px 14px; font-size: 0.95rem; }
+            #post-answer-buttons.active { flex-direction: column; }
+            #intermediate-screen { overflow-x: hidden; }
+            .results-grid { grid-template-columns: 1fr; }
+            .incorrect-list-container {
+                position: fixed; left: 0; top: 0; width: 82vw; height: 100%;
+                background-color: var(--card-bg); z-index: 1002; transform: translateX(-100%);
+                transition: transform 0.3s ease-in-out; padding: 1.5rem; box-sizing: border-box;
+                border-right: none; box-shadow: 2px 0 12px rgba(0,0,0,0.1);
+            }
+            #intermediate-screen.list-open .incorrect-list-container { transform: translateX(0); }
+            .list-toggle-btn {
+                display: flex; align-items: center; justify-content: center; position: fixed; left: 0px; top: 50%;
+                transform: translateY(-50%); z-index: 2001; width: 36px; height: 48px; min-height: 48px;
+                border-radius: 0 8px 8px 0; border: 1px solid var(--border-color); border-left: none;
+                background-color: var(--card-bg); font-size: 1.4rem; font-weight: bold; color: var(--primary-color);
+                cursor: pointer; transition: left 0.3s ease-in-out; padding: 0; padding-left: 2px;
+                box-shadow: 2px 0 6px rgba(0,0,0,0.06);
+            }
+            #intermediate-screen.list-open .list-toggle-btn { left: 82vw; }
+            .list-overlay {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background-color: rgba(0,0,0,0.4); z-index: 1001; opacity: 0;
+                transition: opacity 0.3s ease-in-out; pointer-events: none;
+            }
+            #intermediate-screen.list-open .list-overlay { display: block; opacity: 1; pointer-events: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <canvas id="confetti-canvas"></canvas>
+        
+        <!-- ホーム（設定）画面 -->
+        <div id="setup-screen" class="screen active">
+            <section aria-label="Q-One ホーム画面" class="setup-content layout-pattern-1" id="home-screen">
+                <header class="app-header">
+                    <!-- 置き換え対象: <header class="app-header"> の中身 -->
+                    <div class="app-brand">
+                        <img src="./assets/logo-full.svg" alt="Q-One" class="app-logo">
+                    </div>
+<div class="app-actions">
+    <!-- プロフィールボタン（id="profile-btn" を付与） -->
+    <button class="icon-btn" id="profile-btn" title="プロフィール" type="button">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+    </button>
+    <!-- 設定ボタン -->
+    <button class="icon-btn" id="settings-btn" title="設定" type="button">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+    </button>
+    <!-- ヘルプボタン -->
+    <button class="icon-btn" id="help-btn" title="入力形式のヘルプ" type="button">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" x2="12.01" y1="17" y2="17"></line></svg>
+    </button>
+</div>
+                </header>
+                <p class="app-description">学習するデータを選び、オプションを設定して開始してください。</p>
+                <div class="input-section">
+                    <!-- ラジオボタンで表示をCSSのみで切り替え -->
+                    <input checked="" hidden="" id="mode-text" name="input_mode" type="radio"/>
+                    <input hidden="" id="mode-file" name="input_mode" type="radio"/>
+                    <input hidden="" id="mode-pack" name="input_mode" type="radio"/>
+                    <input hidden="" id="mode-history" name="input_mode" type="radio"/>
+                    <nav class="input-nav">
+                        <label class="nav-item" for="mode-text">
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            <span>テキスト入力</span>
+                        </label>
+                        <label class="nav-item" for="mode-file">
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M12 18v-6"></path><path d="M9 15l3-3 3 3"></path></svg>
+                            <span>テキストファイル</span>
+                        </label>
+                        <label class="nav-item" for="mode-pack">
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect height="20" rx="2.18" ry="2.18" width="20" x="2" y="2"></rect><line x1="7" x2="7" y1="2" y2="22"></line><line x1="17" x2="17" y1="2" y2="22"></line><line x1="2" x2="22" y1="12" y2="12"></line><line x1="2" x2="7" y1="7" y2="7"></line><line x1="2" x2="7" y1="17" y2="17"></line><line x1="17" x2="22" y1="17" y2="17"></line><line x1="17" x2="22" y1="7" y2="7"></line></svg>
+                            <span>問題パック</span>
+                        </label>
+                        <label class="nav-item" for="mode-history">
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                            <span>履歴</span>
+                        </label>
+                    </nav>
+                    <div class="input-panels">
+                        <!-- パネル1: テキストボックス -->
+                        <div class="panel" id="panel-text">
+                            <textarea id="input-text" placeholder="ここに問題リストを貼り付けます。形式は右上の「?」ボタンで確認できます。"></textarea>
+                            <div class="text-actions">
+                                <button class="btn-primary" id="export-pack-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.25em;height:1.25em;margin-right:0.5em;vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>問題をパックとして出力</button>
+                                <button class="btn-secondary" id="save-my-problem-btn" type="button" disabled title="準備中">マイ問題に保存</button>
+                            </div>
+                        </div>
+                        <!-- パネル2: テキストファイル -->
+                        <div class="panel" id="panel-file">
+                            <div class="file-drop-area">
+                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
+                                <p>テキストファイル(.txt)をドラッグ＆ドロップ、または</p>
+                                <input accept=".txt" class="file-input-real" type="file"/>
+                                <button class="btn-secondary" type="button">ファイルを選択</button>
+                            </div>
+                        </div>
+                        <!-- パネル3: 問題パック -->
+                        <div class="panel" id="panel-pack">
+                            <div class="pack-panel-content">
+                                <div aria-label="問題パック一覧" class="pack-grid">
+                                    <button aria-label="新しい問題パックを追加" class="pack-add-tile" id="add-pack-btn" type="button">
+                                        <span aria-hidden="true" class="pack-add-icon"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span>
+                                        <span class="pack-add-title">新しい問題パック</span>
+                                        <span class="pack-add-description">動画ファイルから読み込み</span>
+                                    </button>
+                                    <!-- 新規読み込み用のinput (非表示) -->
+                                    <input accept=".mp4,.mov" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
+                                    
+                                    <div class="pack-card card-theme-blue">
+                                        <div class="pack-card-header">
+                                            <div class="pack-card-tag">問題パック / 数学</div>
+                                            <svg class="pack-card-header-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                            <h4 class="pack-card-title">カードテスト01</h4>
+                                        </div>
+                                        <div class="pack-card-body">
+                                            <svg fill="currentColor" viewBox="0 0 24 24"><path d="M21 4H6.5A2.5 2.5 0 0 0 4 6.5v11.16A2.5 2.5 0 0 0 6.5 20h14.5V4zm-3 8H9v-2h9v2zm0-4H9V6h9v2z"></path></svg>
+                                            <div class="pack-card-count-wrapper">
+                                                <span class="pack-card-count">100</span>
+                                                <span class="pack-card-unit">問</span>
+                                            </div>
+                                        </div>
+                                        <div class="pack-card-footer">
+                                            <span class="pack-card-status">未開始</span>
+                                            <span class="pack-card-date">2026.10.07 20:10</span>
+                                        </div>
+                                    </div>
+                                    <div class="pack-card card-theme-green">
+                                        <div class="pack-card-header">
+                                            <div class="pack-card-tag">問題パック / 英語</div>
+                                            <svg class="pack-card-header-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                            <h4 class="pack-card-title">基本英単語100</h4>
+                                        </div>
+                                        <div class="pack-card-body">
+                                            <svg fill="currentColor" viewBox="0 0 24 24"><path d="M21 4H6.5A2.5 2.5 0 0 0 4 6.5v11.16A2.5 2.5 0 0 0 6.5 20h14.5V4zm-3 8H9v-2h9v2zm0-4H9V6h9v2z"></path></svg>
+                                            <div class="pack-card-count-wrapper">
+                                                <span class="pack-card-count">100</span>
+                                                <span class="pack-card-unit">問</span>
+                                            </div>
+                                        </div>
+                                        <div class="pack-card-footer">
+                                            <span class="pack-card-status">完了</span>
+                                            <span class="pack-card-date">2026.10.05 14:30</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p aria-live="polite" class="pack-file-status" id="pack-file-status" style="display:none"></p>
+                            </div>
+                        </div>
+                        <!-- パネル4: 履歴 (リトライ一覧) -->
+                        <div class="panel" id="panel-history">
+                            <div aria-label="学習履歴" class="history-list">
+                                <!-- 置き換え対象: .history-entry -->
+                                <article class="history-entry">
+                                    <div class="history-entry-main">
+                                        <div class="history-header">
+                                            <span class="history-badge history-date">2026/10/13 18:24</span>
+                                            <span class="history-badge history-pack">問題パック</span>
+                                        </div>
+                                        <div class="history-title-row">
+                                            <h3>古典単語330四択</h3>
+                                            <span class="history-range-badge">範囲: 1～50</span>
+                                        </div>
+                                        <div class="history-stats">
+                                            <span class="history-stat-item">50問中 34問正解</span>
+                                            <span class="history-stat-item highlight">正答率 68%</span>
+                                        </div>
+                                    </div>
+                                    <div class="history-retry-actions" aria-label="リトライ操作">
+                                        <button class="retry-action" type="button"><span aria-hidden="true">↻</span> もう一度解く</button>
+                                    </div>
+                                </article>
+                            </div>
+                        </div>
+                    </div>
+<!-- モバイル用: 出題設定へ進むフローティングボタン -->
+                    <div class="mobile-floating-action" id="mobile-settings-fab">
+                        <button class="btn-primary btn-with-icon" type="button">
+                            <span>出題設定へ進む</span>
+                            <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                <aside class="settings-stack" aria-label="出題設定と開始操作">
+                <!-- モバイル用設定ヘッダー -->
+                    <div class="mobile-settings-header">
+                        <h2>出題設定</h2>
+                        <button id="close-settings-btn" class="icon-btn" aria-label="閉じる">&times;</button>
+                    </div>
+                    <div class="settings-wrapper">
+                        <div class="settings-row">
+                            <div class="setting-item">
+                                <label class="setting-item-row shuffle-container" for="shuffle-checkbox">
+                                    <span class="shuffle-label">出題順をランダムに</span>
+                                    <input class="custom-toggle-input" id="shuffle-checkbox" type="checkbox"/>
+                                    <div class="custom-checkbox"></div>
+                                </label>
+                                <label class="setting-item-row shuffle-container" for="self-grade-checkbox" style="margin-top: 0.8rem;">
+                                    <span class="shuffle-label">自己採点モード</span>
+                                    <input class="custom-toggle-input" id="self-grade-checkbox" type="checkbox"/>
+                                    <div class="custom-checkbox"></div>
+                                </label>
+                            </div>
+                            <div class="setting-item importance-setting">
+                                <label>重要度で絞り込み</label>
+                                <div class="importance-filter">
+                                    <input checked="" id="imp-all" name="importance" type="radio" value="1-3"/><label for="imp-all">すべて</label>
+                                    <input id="imp-high" name="importance" type="radio" value="2-3"/><label for="imp-high">重要</label>
+                                    <input id="imp-highest" name="importance" type="radio" value="3-3"/><label for="imp-highest">最重要</label>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <label for="fill-rate-slider">穴埋め問題の空欄率: <span id="fill-rate-value">100</span>%</label>
+                                <input id="fill-rate-slider" max="100" min="50" type="range" value="100"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="start-buttons-container">
+                        <button class="btn-primary btn-with-icon" id="start-btn" type="button"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7z"></path></svg><span>通常スタート</span></button>
+                        <button class="btn-secondary btn-with-icon" id="final-check-btn" type="button"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"></path></svg><span>直前チェック</span></button>
+                    </div>
+                </aside>
+            </section>
+        </div>
+
+        <!-- 出題画面 -->
+        <div id="main-screen" class="screen">
+            <button id="toggle-incorrect-list-btn-main">&gt;</button>
+            <div class="list-overlay-main"></div>
+            <div class="incorrect-list-container-main">
+                <h3>間違えた問題</h3>
+                <ul id="incorrect-list-main"></ul>
+                <button id="interim-review-panel-btn" class="btn-primary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg><span>間違えた問題を一旦復習</span></button>
+            </div>
+            <div id="progress-area">
+                <div id="progress-bar-container"><div id="progress-bar"></div></div>
+                <div class="progress-info">
+                    <div class="progress-info-left">
+                        <div id="progress-text"></div>
+                        <div id="mistake-counter"></div>
+                    </div>
+                    <div class="main-header-controls">
+                        <div id="importance-display"></div>
+                        <div class="main-header-buttons">
+                            <button id="home-btn" class="header-btn" aria-label="ホームに戻る"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955a1.125 1.125 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h7.5" /></svg></button>
+                            <button id="interim-review-btn" class="header-btn" aria-label="間違えた問題を一旦復習"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg></button>
+                        </div>
+                    </div>
+                </div>
+                <div id="mode-indicator"></div>
+            </div>
+            <div id="content-area">
+                <div id="check-view" class="problem-view"><div class="large-text"></div><div class="small-text"></div></div>
+                <div id="select-view" class="problem-view"><div class="large-text"></div><div class="small-text"></div><div id="select-options-container"></div></div>
+                <div id="enter-view" class="problem-view"><div class="large-text"></div><div class="input-form"><input type="text" id="enter-input" class="text-input" placeholder="答えを入力"></div></div>
+                <div id="fill-view" class="problem-view"><div class="large-text"></div><div id="fill-content"></div><div class="input-form"></div></div>
+            </div>
+            <div id="action-area">
+                <div id="feedback-container"><span id="feedback-text"></span><button id="add-to-review-btn">復習リストに追加</button></div>
+                
+                <div id="self-grading-container" class="button-container input-form">
+                    <div id="self-grading-info"></div>
+                    <div class="self-grading-btn-row">
+                        <button id="self-grade-correct-btn" class="btn-success btn-with-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>正解</span>
+                        </button>
+                        <button id="self-grade-incorrect-btn" class="btn-secondary btn-with-icon" style="border-color: var(--danger-color); color: var(--danger-color);">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg><span>不正解</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="check-button-container" class="button-container input-form"><button id="review-btn" class="btn-secondary">後でもう一度確認</button><button id="ok-btn" class="btn-success btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>OK</span></button></div>
+                <div id="post-answer-buttons" class="button-container input-form"><button id="retry-current-problem-btn" class="btn-secondary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path></svg><span>この問題を解き直す</span></button><button id="next-problem-btn" class="btn-primary">次へ</button></div>
+                <button id="action-btn" class="btn-primary"></button>
+            </div>
+        </div>
+        
+        <!-- 中間結果画面 -->
+        <div id="intermediate-screen" class="screen">
+            <button id="toggle-incorrect-list-btn" class="list-toggle-btn">&gt;</button>
+            <div class="list-overlay"></div>
+            <div class="results-grid">
+                <div class="incorrect-list-container"><h3>間違えた問題</h3><ul id="incorrect-list"></ul></div>
+                <div class="results-summary-container">
+                    <h1>お疲れ様でした！</h1>
+                    <div class="results-summary"><div class="results-visual"><span id="results-percentage"></span></div><div id="results-details"></div></div>
+                    <div class="results-options">
+                        <button id="retry-incorrect-btn" class="btn-primary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg><span>間違えた問題を復習</span></button>
+                        <button id="copy-incorrect-btn" class="btn-secondary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg><span>誤答問題をコピー</span></button>
+                        <button id="retry-all-btn" class="btn-secondary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg><span>もう一度すべて解く</span></button>
+                        <button id="retry-final-check-btn" class="btn-secondary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>直前チェック (全問題)</span></button>
+                        <button id="restart-completely-btn" class="btn-secondary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>新しい問題で始める</span></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 全問クリア画面 -->
+        <div id="end-screen" class="screen centered-content">
+            <h1>パーフェクト！</h1>
+            <div class="results-summary">
+                <div class="results-visual">
+                    <span id="end-percentage">0%</span>
+                </div>
+                <p>すべての問題をマスターしました！</p>
+            </div>
+            <div class="results-options">
+                <button id="end-retry-all-btn" class="btn-primary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg><span>もう一度すべて解く</span></button>
+                <button id="end-restart-btn" class="btn-secondary btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>新しい問題で始める</span></button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 設定モーダル -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <button class="modal-close-btn">&times;</button>
+            <h2>設定</h2>
+            
+            <div class="settings-stack" style="margin-top: 1.5rem;">
+                <div class="settings-wrapper">
+                    <label class="setting-item-row shuffle-container" for="dark-mode-toggle">
+                        <span class="shuffle-label">ダークモード</span>
+                        <input class="custom-toggle-input" id="dark-mode-toggle" type="checkbox"/>
+                        <div class="custom-checkbox"></div>
+                    </label>
+                    <div style="margin-top: 1.5rem;">
+                        <label for="font-size-slider" style="display:block; font-size:0.95rem; font-weight:600; margin-bottom:0.6rem;">文字サイズ: <span id="font-size-value">100</span>%</label>
+                        <input id="font-size-slider" max="200" min="50" type="range" value="100"/>
+                    </div>
+                </div>
+                
+                <div class="settings-wrapper">
+                    <h3 style="margin-top:0; margin-bottom:1rem; font-size:1.1rem;">データ管理</h3>
+                    <div style="display:flex; flex-direction:column; gap:0.8rem;">
+                        <button id="export-data-btn" class="btn-primary">データをJSONとしてエクスポート</button>
+                        <input type="file" id="import-data-input" accept=".json" hidden />
+                        <button id="import-data-btn" class="btn-secondary">JSONデータをインポート</button>
+                        <button id="reset-data-btn" class="btn-secondary" style="border-color: var(--danger-color); color: var(--danger-color); margin-top: 0.5rem;">全データリセット (危険)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- ヘルプモーダル -->
+    <div id="help-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <button class="modal-close-btn">&times;</button>
+            <h2>問題の作り方ガイド</h2>
+            <div class="help-section">
+                <h3><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>3つの基本ルール</h3>
+                <ol style="padding-left: 20px; color: var(--secondary-color);">
+                    <li><strong>基本の形:</strong> <code>[種類] 問題文 @ 答え</code> で書く</li>
+                    <li><strong>区切り:</strong> 問題の終わりには <code>#</code> を付ける</li>
+                    <li><strong>重要度:</strong> 最後に <code>_3</code> のように付ける (任意)</li>
+                </ol>
+            </div>
+            <div class="help-section">
+                <h3><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>記号の役割</h3>
+                <table class="help-table">
+                    <thead><tr><th>記号</th><th>役割</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>[]</code></td><td>問題の種類を指定（<code>check</code>, <code>select</code> など）</td></tr>
+                        <tr><td><code>@</code></td><td>問題と答えの区切り</td></tr>
+                        <tr><td><code>{}</code></td><td>選択問題の<strong>正解</strong></td></tr>
+                        <tr><td><code>&lt;&gt;</code></td><td>選択問題の<strong>不正解</strong> / 穴埋めの<strong>空欄</strong></td></tr>
+                        <tr><td><code>#</code></td><td>問題の終わり</td></tr>
+                        <tr><td><code>_</code></td><td>重要度を指定（<code>_1</code> 低 〜 <code>_3</code> 高）</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="help-section" style="margin-bottom: 0;">
+                <h3><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a2.25 2.25 0 01-2.25 2.25h-1.5a2.25 2.25 0 01-2.25-2.25v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>コピーして試そう</h3>
+                <p>以下の形式例をコピーして、例題を試すことができます。</p>
+                <div class="copy-example">[check]apple@りんご_3#
+[select]日本の首都は？@{東京}&lt;大阪&gt;&lt;京都&gt;_3#
+[enter]1+1=?@2_1#
+[fill]犬も歩けば@&lt;棒&gt;にあたる_2#</div>
+            </div>
+        </div>
+    </div>
+    <!-- プロフィールモーダル -->
+    <div id="profile-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <button class="modal-close-btn">&times;</button>
+            <h2>プロフィール</h2>
+            <div class="profile-header">
+                <div class="profile-avatar">
+                    <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </div>
+                <div class="profile-name-container">
+                    <input type="text" id="profile-username" class="profile-name-input" placeholder="ユーザー名を入力" value="ゲスト">
+                    <svg class="edit-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                </div>
+            </div>
+            
+            <h3 class="profile-stats-title">学習ダッシュボード</h3>
+            <div class="profile-stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total-questions">0</div>
+                    <div class="stat-label">解いた問題数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-correct-rate">0%</div>
+                    <div class="stat-label">全体正答率</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-learning-days">0</div>
+                    <div class="stat-label">学習日数</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="copy-modal" class="modal"><div class="modal-overlay"></div><div class="modal-content"><button class="modal-close-btn">&times;</button><h2>誤答問題リスト</h2><p>以下のテキストをコピーして、次回の学習に活用してください。</p><textarea id="copy-textarea" readonly></textarea></div></div>
+
+    <!-- 処理中プログレスモーダル（動画生成・解析用） -->
+    <div id="progress-modal" class="modal">
+        <div class="modal-overlay" style="pointer-events: none;"></div>
+        <div class="modal-content progress-modal-content">
+            <h3 id="progress-modal-title">処理中...</h3>
+            <div class="progress-modal-bar-bg"><div id="progress-modal-bar" class="progress-modal-bar-fill"></div></div>
+            <div id="progress-modal-status" class="progress-modal-status">準備中...</div>
+            <button id="progress-modal-cancel" class="cancel-btn">キャンセル</button>
+        </div>
+    </div>
+
+    <!-- JSエントリーポイント -->
+    <script type="module" src="./js/main/main.js"></script>
+</body>
+</html>

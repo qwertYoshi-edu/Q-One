@@ -1,0 +1,425 @@
+import { state } from './state.js';
+import {
+    screens, mainScreen, views, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
+    addToReviewBtn, modeIndicator, postAnswerButtons, nextProblemBtn, retryCurrentProblemBtn,
+    selfGradingContainer, selfGradingInfo, selfGradeCorrectBtn, selfGradeIncorrectBtn,
+    fillRateSlider, selfGradeCheckbox, modeTextRadio
+} from './dom.js';
+import { parseText } from './parser.js';
+import { escapeHtml, normalizeAnswer } from './utils.js';
+import { resetQuestionUI, switchScreen, updateProgress, updateIncorrectListPanel, showIntermediateResults } from './ui.js';
+
+function screenSwitcher(screenName) {
+    return switchScreen(screenName, showIntermediateResults);
+}
+
+export function startGame(isCheckMode = false) {
+    // 未実装タブ（ファイル/パック/履歴）選択時のガード
+    if (modeTextRadio && !modeTextRadio.checked) {
+        alert('現在「テキスト入力」タブのみ対応しています。\n「テキスト入力」タブを選択して開始してください。');
+        return;
+    }
+
+    state.isFinalCheckMode = isCheckMode;
+    state.isInterimReview = false;
+    state.savedState = null;
+    state.isSelfGradingMode = selfGradeCheckbox.checked && !state.isFinalCheckMode;
+
+    const inputText = document.getElementById('input-text').value;
+    const allProblems = parseText(inputText);
+    const selectedImportance = document.querySelector('input[name="importance"]:checked').value;
+    const [minImp, maxImp] = selectedImportance.split('-').map(Number);
+    let filteredProblems = allProblems.filter(p => p.importance >= minImp && p.importance <= maxImp);
+    if (document.getElementById('shuffle-checkbox').checked) filteredProblems.sort(() => Math.random() - 0.5);
+    if (filteredProblems.length === 0) {
+        alert('選択した重要度の問題が存在しないか、形式に誤りがあります。');
+        return;
+    }
+    state.originalWordList = JSON.parse(JSON.stringify(filteredProblems));
+    state.fillBlankRate = parseInt(fillRateSlider.value, 10);
+    startNewPass(filteredProblems, false);
+}
+
+export function startNewPass(problems, isReview) {
+    state.wordList = [...problems];
+    state.reviewList = [];
+    state.currentIndex = 0;
+    state.correctCount = 0;
+    state.checkOKCount = 0;
+    state.checkReviewCount = 0;
+    state.mistakeCount = 0;
+    state.currentPassTotalForRate = state.wordList.filter(p => p.type !== 'check' && !state.isFinalCheckMode).length;
+    state.isCheckOnlyMode = state.wordList.every(p => p.type === 'check');
+    state.isReviewPhase = isReview;
+
+    let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
+    if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
+    modeIndicator.textContent = modeTitle;
+
+    updateIncorrectListPanel();
+    screenSwitcher('main');
+    showNextProblem();
+}
+
+export function retryIncorrect() {
+    state.isFinalCheckMode = false;
+    if (state.reviewList.length > 0) startNewPass(state.reviewList, true);
+}
+
+export function retryAll() {
+    state.isFinalCheckMode = false;
+    startNewPass(state.originalWordList, false);
+}
+
+export function restartGame() {
+    state.isInterimReview = false;
+    state.savedState = null;
+    screenSwitcher('setup');
+}
+
+export function showNextProblem() {
+    state.isRetryingCurrent = false;
+    if (state.currentIndex >= state.wordList.length) {
+        if (state.isInterimReview) endInterimReview(true);
+        else if (state.reviewList.length === 0) screenSwitcher('end');
+        else screenSwitcher('intermediate');
+        return;
+    }
+
+    updateProgress();
+    resetQuestionUI(views);
+
+    const problem = state.wordList[state.currentIndex];
+    let reviewMark = state.isReviewPhase ? '<span class="review-indicator">復習</span>' : '';
+    if (state.isInterimReview) reviewMark = '<span class="review-indicator" style="background-color: var(--warning-color); color: white;">一旦復習</span>';
+    const view = views[state.isFinalCheckMode ? 'check' : problem.type];
+    const largeTextContent = view.querySelector('.large-text');
+    largeTextContent.innerHTML = '';
+    const textSpan = document.createElement('span');
+    textSpan.textContent = problem.largeText;
+    largeTextContent.appendChild(textSpan);
+    if (reviewMark) largeTextContent.insertAdjacentHTML('beforeend', reviewMark);
+    view.classList.add('is-entering');
+    view.style.display = 'block';
+    requestAnimationFrame(() => { view.classList.remove('is-entering'); });
+
+    if (state.isFinalCheckMode) {
+        let answerHtml = '';
+        switch (problem.type) {
+            case 'select':
+            case 'enter':
+                answerHtml = escapeHtml(problem.correctAnswer);
+                break;
+            case 'fill':
+                answerHtml = problem.questionParts.map((part, index) => escapeHtml(part) + (index < problem.answers.length ? `<span class="final-check-answer">${escapeHtml(problem.answers[index])}</span>` : '')).join('');
+                break;
+            default:
+                answerHtml = escapeHtml(problem.smallText || '');
+        }
+        view.querySelector('.small-text').innerHTML = answerHtml;
+        setupCheck();
+    } else {
+        if (view.querySelector('.small-text')) view.querySelector('.small-text').textContent = problem.smallText || '';
+        if (problem.type === 'check') setupCheck();
+        else if (problem.type === 'select') setupSelect(problem);
+        else if (problem.type === 'enter') setupEnter(problem);
+        else if (problem.type === 'fill') setupFill(problem);
+    }
+}
+
+function setupCheck() {
+    checkButtonContainer.classList.add('active');
+    document.getElementById('ok-btn').onclick = () => handleAnswerFeedback(true);
+    document.getElementById('review-btn').onclick = () => handleAnswerFeedback(false);
+}
+
+function setupSelect(problem) {
+    const container = document.getElementById('select-options-container');
+    container.innerHTML = '';
+    [...problem.options].sort(() => Math.random() - 0.5).forEach(optionText => {
+        const btn = document.createElement('button');
+        btn.textContent = optionText;
+        btn.className = 'select-option-btn';
+        btn.onclick = (e) => {
+            container.querySelectorAll('button').forEach(b => b.disabled = true);
+            const isCorrect = (optionText === problem.correctAnswer);
+            container.querySelectorAll('button').forEach(b => {
+                if (b.textContent === problem.correctAnswer) b.classList.add('correct');
+            });
+            if (!isCorrect) e.target.classList.add('incorrect');
+            handleAnswerFeedback(isCorrect, problem.correctAnswer);
+        };
+        container.appendChild(btn);
+    });
+}
+
+function setupEnter(problem) {
+    const input = document.getElementById('enter-input');
+    input.value = '';
+    input.disabled = false;
+
+    const handleSubmit = () => {
+        input.disabled = true;
+        actionBtn.classList.remove('visible');
+        const isCorrect = normalizeAnswer(input.value) === normalizeAnswer(problem.correctAnswer);
+
+        if (state.isSelfGradingMode) {
+            if (isCorrect) {
+                handleAnswerFeedback(true, problem.correctAnswer);
+            } else {
+                startSelfGradingSingle(
+                    `あなたの入力: 「${escapeHtml(input.value)}」<br>正解: 「${escapeHtml(problem.correctAnswer)}」`,
+                    problem.correctAnswer
+                );
+            }
+        } else {
+            handleAnswerFeedback(isCorrect, problem.correctAnswer);
+        }
+    };
+
+    actionBtn.textContent = '回答';
+    actionBtn.onclick = handleSubmit;
+    actionBtn.classList.add('visible');
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.isComposing) handleSubmit();
+    };
+    requestAnimationFrame(() => input.focus());
+}
+
+function setupFill(problem) {
+    const contentDiv = document.getElementById('fill-content');
+    contentDiv.innerHTML = '';
+    const totalBlanks = problem.answers.length;
+    const blanksToShow = Math.round(totalBlanks * (state.fillBlankRate / 100));
+    const blankIndices = new Set([...Array(totalBlanks).keys()].sort(() => 0.5 - Math.random()).slice(0, blanksToShow));
+
+    const updateInputWidth = (input) => {
+        const len = input.value.length || 4;
+        input.style.width = Math.max(70, (len + 3) * 16) + 'px';
+    };
+
+    problem.questionParts.forEach((part, index) => {
+        contentDiv.appendChild(document.createTextNode(part));
+        if (index < totalBlanks) {
+            if (blankIndices.has(index)) {
+                const input = document.createElement('input');
+                input.className = 'fill-input';
+                input.dataset.answerIndex = index;
+                input.addEventListener('input', () => updateInputWidth(input));
+                contentDiv.appendChild(input);
+                updateInputWidth(input);
+            } else {
+                const prefilled = document.createElement('span');
+                prefilled.className = 'fill-prefilled';
+                prefilled.textContent = problem.answers[index];
+                contentDiv.appendChild(prefilled);
+            }
+        }
+    });
+
+    const handleSubmit = () => {
+        const inputs = [...contentDiv.querySelectorAll('.fill-input')];
+        inputs.forEach(i => i.disabled = true);
+        actionBtn.classList.remove('visible');
+
+        if (state.isSelfGradingMode && inputs.length > 0) {
+            const blanksData = inputs.map(input => {
+                const answerIndex = parseInt(input.dataset.answerIndex, 10);
+                const correctVal = problem.answers[answerIndex];
+                const userVal = input.value;
+                const isMatch = normalizeAnswer(userVal) === normalizeAnswer(correctVal);
+                return { element: input, userValue: userVal, correctValue: correctVal, isMatch, answerIndex };
+            });
+
+            const allMatch = blanksData.every(b => b.isMatch);
+            if (allMatch) {
+                blanksData.forEach(b => b.element.classList.add('correct'));
+                handleAnswerFeedback(true, problem.answers.join(', '));
+            } else {
+                startSelfGradingFill(problem, blanksData);
+            }
+        } else {
+            let allCorrect = true;
+            inputs.forEach(input => {
+                const answerIndex = parseInt(input.dataset.answerIndex, 10);
+                const isInputCorrect = normalizeAnswer(input.value) === normalizeAnswer(problem.answers[answerIndex]);
+                input.classList.add(isInputCorrect ? 'correct' : 'incorrect');
+                if (!isInputCorrect) allCorrect = false;
+            });
+            handleAnswerFeedback(allCorrect, problem.answers.join(', '));
+        }
+    };
+
+    actionBtn.textContent = '回答';
+    actionBtn.onclick = handleSubmit;
+    actionBtn.classList.add('visible');
+}
+
+function startSelfGradingSingle(infoHtml, correctAnswerText) {
+    feedbackContainer.classList.remove('visible');
+    selfGradingInfo.innerHTML = infoHtml;
+    selfGradingContainer.classList.add('active');
+    selfGradeCorrectBtn.onclick = () => {
+        selfGradingContainer.classList.remove('active');
+        handleAnswerFeedback(true, correctAnswerText);
+    };
+    selfGradeIncorrectBtn.onclick = () => {
+        selfGradingContainer.classList.remove('active');
+        handleAnswerFeedback(false, correctAnswerText);
+    };
+}
+
+function startSelfGradingFill(problem, blanksData) {
+    feedbackContainer.classList.remove('visible');
+    const results = [];
+    blanksData.forEach((b, idx) => {
+        if (b.isMatch) {
+            b.element.classList.add('correct');
+            results[idx] = true;
+        }
+    });
+
+    state.selfGradingFillState = {
+        currentIndex: 0,
+        blanks: blanksData,
+        results,
+        problem
+    };
+
+    selfGradingContainer.classList.add('active');
+    advanceFillGrading();
+}
+
+function advanceFillGrading() {
+    const gradingState = state.selfGradingFillState;
+    gradingState.blanks.forEach(b => b.element.classList.remove('grading-focus'));
+    while (gradingState.currentIndex < gradingState.blanks.length && gradingState.results[gradingState.currentIndex] !== undefined) {
+        gradingState.currentIndex++;
+    }
+
+    if (gradingState.currentIndex >= gradingState.blanks.length) {
+        selfGradingContainer.classList.remove('active');
+        const allCorrect = gradingState.results.every(r => r === true);
+        handleAnswerFeedback(allCorrect, gradingState.problem.answers.join(', '));
+        return;
+    }
+
+    const current = gradingState.blanks[gradingState.currentIndex];
+    current.element.classList.add('grading-focus');
+    current.element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    selfGradingInfo.innerHTML = `空欄 ${current.answerIndex + 1} の採点<br>あなたの入力: 「${escapeHtml(current.userValue)}」<br>正解: 「${escapeHtml(current.correctValue)}」`;
+
+    selfGradeCorrectBtn.onclick = () => {
+        current.element.classList.add('correct');
+        gradingState.results[gradingState.currentIndex] = true;
+        gradingState.currentIndex++;
+        advanceFillGrading();
+    };
+
+    selfGradeIncorrectBtn.onclick = () => {
+        current.element.classList.add('incorrect');
+        gradingState.results[gradingState.currentIndex] = false;
+        gradingState.currentIndex++;
+        advanceFillGrading();
+    };
+}
+
+export function retryCurrentProblem() {
+    state.isRetryingCurrent = true;
+    feedbackContainer.classList.remove('visible', 'correct', 'incorrect', 'neutral');
+    postAnswerButtons.classList.remove('active');
+    selfGradingContainer.classList.remove('active');
+    addToReviewBtn.style.display = 'none';
+    const problem = state.wordList[state.currentIndex];
+    if (problem.type === 'select') setupSelect(problem);
+    else if (problem.type === 'enter') setupEnter(problem);
+    else if (problem.type === 'fill') setupFill(problem);
+}
+
+function handleAnswerFeedback(isCorrect, correctAnswerText) {
+    const problem = state.wordList[state.currentIndex];
+    if (!state.isRetryingCurrent) {
+        if (state.isInterimReview) {
+            if (isCorrect) {
+                state.correctCount++;
+                state.mistakeCount--;
+                state.savedState.reviewList = state.savedState.reviewList.filter(p => p.originalString !== problem.originalString);
+            } else {
+                if (!state.reviewList.some(p => p.originalString === problem.originalString)) state.reviewList.push(problem);
+            }
+        } else {
+            if (problem.type === 'check' || state.isFinalCheckMode) isCorrect ? state.checkOKCount++ : state.checkReviewCount++;
+            else if (isCorrect) state.correctCount++;
+            if (!isCorrect) {
+                if (!state.reviewList.some(p => p.originalString === problem.originalString)) state.reviewList.push(problem);
+                if (problem.type !== 'check' && !state.isFinalCheckMode) state.mistakeCount++;
+            }
+            updateIncorrectListPanel();
+        }
+    }
+
+    if (problem.type !== 'check' && !state.isFinalCheckMode) {
+        feedbackText.textContent = isCorrect ? '正解！' : `不正解　正しい解答: ${correctAnswerText}`;
+        feedbackContainer.className = `visible ${isCorrect ? 'correct' : 'incorrect'}`;
+        if (!state.isRetryingCurrent && !state.isInterimReview) {
+            addToReviewBtn.style.display = 'block';
+            const isInReviewList = state.reviewList.some(p => p.originalString === problem.originalString);
+            addToReviewBtn.disabled = isInReviewList;
+            addToReviewBtn.textContent = isInReviewList ? '追加済み' : '復習リストに追加';
+            addToReviewBtn.onclick = () => {
+                if (!state.reviewList.some(p => p.originalString === problem.originalString)) {
+                    state.reviewList.push(problem);
+                    addToReviewBtn.disabled = true;
+                    addToReviewBtn.textContent = '追加済み';
+                    updateIncorrectListPanel();
+                }
+            };
+        }
+        actionBtn.classList.remove('visible');
+        postAnswerButtons.classList.add('active');
+        nextProblemBtn.onclick = moveToNextProblem;
+        retryCurrentProblemBtn.onclick = retryCurrentProblem;
+    } else {
+        moveToNextProblem();
+    }
+    updateProgress();
+}
+
+function moveToNextProblem() {
+    state.currentIndex++;
+    showNextProblem();
+}
+
+export function startInterimReview() {
+    if (state.reviewList.length === 0) {
+        alert('復習する問題がありません。');
+        return;
+    }
+    if (!confirm('間違えた問題を復習しますか？')) return;
+    mainScreen.classList.remove('list-open');
+    state.isInterimReview = true;
+    state.savedState = {
+        wordList: [...state.wordList],
+        currentIndex: state.currentIndex,
+        reviewList: [...state.reviewList]
+    };
+    state.wordList = [...state.reviewList].sort(() => Math.random() - 0.5);
+    state.reviewList = [];
+    state.currentIndex = 0;
+    modeIndicator.textContent = '一旦復習モード';
+    showNextProblem();
+}
+
+export function endInterimReview(resume) {
+    if (!state.isInterimReview) return;
+    state.wordList = state.savedState.wordList;
+    state.currentIndex = state.savedState.currentIndex;
+    state.reviewList = state.savedState.reviewList;
+    state.isInterimReview = false;
+    state.savedState = null;
+    let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
+    if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
+    modeIndicator.textContent = modeTitle;
+    updateIncorrectListPanel();
+    if (resume) showNextProblem();
+}
