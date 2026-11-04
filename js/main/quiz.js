@@ -3,8 +3,12 @@ import {
     screens, mainScreen, views, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     addToReviewBtn, modeIndicator, postAnswerButtons, nextProblemBtn, retryCurrentProblemBtn,
     selfGradingContainer, selfGradingInfo, selfGradeCorrectBtn, selfGradeIncorrectBtn,
-    fillRateSlider, selfGradeCheckbox, modeTextRadio
+    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput
 } from './dom.js';
+
+// 名前衝突を防ぐため「DB」という大文字の変数名でインポート
+import * as DB from './db.js';
+
 import { parseText } from './parser.js';
 import { escapeHtml, normalizeAnswer } from './utils.js';
 import { resetQuestionUI, switchScreen, updateProgress, updateIncorrectListPanel, showIntermediateResults } from './ui.js';
@@ -14,12 +18,10 @@ function screenSwitcher(screenName) {
 }
 
 export function startGame(isCheckMode = false) {
-    // 未実装タブ（ファイル/パック/履歴）選択時のガード
     if (modeTextRadio && !modeTextRadio.checked) {
-        alert('現在「テキスト入力」タブのみ対応しています。\n「テキスト入力」タブを選択して開始してください。');
+        alert('現在「テキスト入力」タブのみ対応しています。');
         return;
     }
-
     state.isFinalCheckMode = isCheckMode;
     state.isInterimReview = false;
     state.savedState = null;
@@ -27,16 +29,41 @@ export function startGame(isCheckMode = false) {
 
     const inputText = document.getElementById('input-text').value;
     const allProblems = parseText(inputText);
+    
+    // --- 範囲指定ロジック ---
+    const startVal = rangeStartInput ? rangeStartInput.value : '';
+    const endVal = rangeEndInput ? rangeEndInput.value : '';
+    const startIdx = parseInt(startVal, 10);
+    const endIdx = parseInt(endVal, 10);
+    
+    let slicedProblems = allProblems;
+    if (!isNaN(startIdx) || !isNaN(endIdx)) {
+        const s = isNaN(startIdx) ? 0 : Math.max(0, startIdx - 1);
+        const e = isNaN(endIdx) ? allProblems.length : Math.min(allProblems.length, endIdx);
+        if (s < e) {
+            slicedProblems = allProblems.slice(s, e);
+        } else {
+            alert('出題範囲の指定が不正です。'); return;
+        }
+    }
+
     const selectedImportance = document.querySelector('input[name="importance"]:checked').value;
     const [minImp, maxImp] = selectedImportance.split('-').map(Number);
-    let filteredProblems = allProblems.filter(p => p.importance >= minImp && p.importance <= maxImp);
+    let filteredProblems = slicedProblems.filter(p => p.importance >= minImp && p.importance <= maxImp);
+    
     if (document.getElementById('shuffle-checkbox').checked) filteredProblems.sort(() => Math.random() - 0.5);
+    
     if (filteredProblems.length === 0) {
-        alert('選択した重要度の問題が存在しないか、形式に誤りがあります。');
+        alert('選択した範囲・重要度の問題が存在しないか、形式に誤りがあります。');
         return;
     }
+    
     state.originalWordList = JSON.parse(JSON.stringify(filteredProblems));
     state.fillBlankRate = parseInt(fillRateSlider.value, 10);
+    
+    // 新規セッションIDの生成 (UUIDが無ければランダム文字列)
+    state.currentSessionId = (crypto.randomUUID && crypto.randomUUID()) || Date.now().toString(36);
+    
     startNewPass(filteredProblems, false);
 }
 
@@ -58,6 +85,22 @@ export function startNewPass(problems, isReview) {
 
     updateIncorrectListPanel();
     screenSwitcher('main');
+    
+    // テストセッションをDBに記録（UIを止めないようにバックグラウンド実行）
+    if (!isReview) {
+        DB.put('test_sessions', {
+            id: state.currentSessionId,
+            packId: 'manual_input', // 仮
+            mode: state.isFinalCheckMode ? 'final_check' : 'normal',
+            range: `${rangeStartInput ? rangeStartInput.value || '1' : '1'} ~ ${rangeEndInput ? rangeEndInput.value || '最後' : '最後'}`,
+            totalQuestions: state.wordList.length,
+            correctCount: 0,
+            totalTimeMs: 0,
+            startedAt: Date.now(),
+            completedAt: null
+        }).catch(err => console.error('セッション保存エラー:', err));
+    }
+
     showNextProblem();
 }
 
@@ -106,7 +149,6 @@ export function showNextProblem() {
     requestAnimationFrame(() => { view.classList.remove('is-entering'); });
 
     if (state.isFinalCheckMode) {
-        // ... (既存の中身そのまま) ...
         let answerHtml = '';
         switch (problem.type) {
             case 'select': case 'enter': answerHtml = escapeHtml(problem.correctAnswer); break;
@@ -125,7 +167,7 @@ export function showNextProblem() {
     
     // 時間計測開始とデバッグログ
     state.currentQuestionStartTime = Date.now();
-    console.log(`[Q-One:Quiz] 出題開始: 問題ID [${problem.problemId || '未定義(parser要確認)'}] / 計測スタート`);
+    console.log(`[Q-One:Quiz] 出題開始: 問題ID [${problem.problemId || '未定義'}] / 計測スタート`);
 }
 
 function setupCheck() {
@@ -344,7 +386,7 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
     
     console.log(`[Q-One:Quiz] 回答検知: 解答時間 [${timeMs}]ms / 正誤: [${isCorrect}]`);
 
-    // DBへの記録をバックグラウンドで実行（エラーは確実にコンソールへ吐き出す）
+    // DBへの記録をバックグラウンドで実行
     saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest).catch(err => {
         console.error('[Q-One:Error] saveAnswerToDB 実行中にエラー発生:', err);
     });
@@ -444,7 +486,7 @@ async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
         }
 
         // 1. 解答ログの保存
-        await db.add('answer_logs', {
+        await DB.add('answer_logs', {
             id: `${state.currentSessionId}-${timestamp}-${Math.random().toString(36).slice(2, 6)}`,
             sessionId: state.currentSessionId,
             problemId: problem.problemId || 'unknown',
@@ -459,7 +501,7 @@ async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
         // 2. 問題の成績(Stats)の更新 (初回挑戦かつ本番テストの時のみ)
         if (isPrimaryTest && problem.type !== 'check') {
             // 対象が存在しない場合のNotFoundErrorを防ぐため catch して null にフォールバック
-            let stats = await db.get('problem_stats', problem.problemId).catch(() => null);
+            let stats = await DB.get('problem_stats', problem.problemId).catch(() => null);
             if (!stats) {
                 stats = {
                     problemId: problem.problemId,
@@ -492,7 +534,7 @@ async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
                 stats.lastMistakeAt = timestamp;
             }
 
-            await db.put('problem_stats', stats);
+            await DB.put('problem_stats', stats);
             console.log(`[Q-One:DB] 成績表更新完了 (problem_stats)`);
         }
     } catch (err) {
