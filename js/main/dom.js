@@ -101,3 +101,6 @@ export const statLearningDays = document.getElementById('stat-learning-days');
 export const mobileSettingsFab = document.getElementById('mobile-settings-fab');
 export const settingsStack = document.querySelector('.settings-stack');
 export const closeSettingsBtn = document.getElementById('close-settings-btn');
+
+export const rangeStartInput = document.getElementById('range-start');
+export const rangeEndInput = document.getElementById('range-end');
