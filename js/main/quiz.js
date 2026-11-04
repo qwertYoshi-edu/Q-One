@@ -93,28 +93,25 @@ export function showNextProblem() {
     let reviewMark = state.isReviewPhase ? '<span class="review-indicator">復習</span>' : '';
     if (state.isInterimReview) reviewMark = '<span class="review-indicator" style="background-color: var(--warning-color); color: white;">一旦復習</span>';
     const view = views[state.isFinalCheckMode ? 'check' : problem.type];
+    
     const largeTextContent = view.querySelector('.large-text');
     largeTextContent.innerHTML = '';
     const textSpan = document.createElement('span');
     textSpan.textContent = problem.largeText;
     largeTextContent.appendChild(textSpan);
     if (reviewMark) largeTextContent.insertAdjacentHTML('beforeend', reviewMark);
+    
     view.classList.add('is-entering');
     view.style.display = 'block';
     requestAnimationFrame(() => { view.classList.remove('is-entering'); });
 
     if (state.isFinalCheckMode) {
+        // ... (既存の中身そのまま) ...
         let answerHtml = '';
         switch (problem.type) {
-            case 'select':
-            case 'enter':
-                answerHtml = escapeHtml(problem.correctAnswer);
-                break;
-            case 'fill':
-                answerHtml = problem.questionParts.map((part, index) => escapeHtml(part) + (index < problem.answers.length ? `<span class="final-check-answer">${escapeHtml(problem.answers[index])}</span>` : '')).join('');
-                break;
-            default:
-                answerHtml = escapeHtml(problem.smallText || '');
+            case 'select': case 'enter': answerHtml = escapeHtml(problem.correctAnswer); break;
+            case 'fill': answerHtml = problem.questionParts.map((part, index) => escapeHtml(part) + (index < problem.answers.length ? `<span class="final-check-answer">${escapeHtml(problem.answers[index])}</span>` : '')).join(''); break;
+            default: answerHtml = escapeHtml(problem.smallText || '');
         }
         view.querySelector('.small-text').innerHTML = answerHtml;
         setupCheck();
@@ -125,6 +122,10 @@ export function showNextProblem() {
         else if (problem.type === 'enter') setupEnter(problem);
         else if (problem.type === 'fill') setupFill(problem);
     }
+    
+    // 時間計測開始とデバッグログ
+    state.currentQuestionStartTime = Date.now();
+    console.log(`[Q-One:Quiz] 出題開始: 問題ID [${problem.problemId || '未定義(parser要確認)'}] / 計測スタート`);
 }
 
 function setupCheck() {
@@ -337,7 +338,17 @@ export function retryCurrentProblem() {
 }
 
 function handleAnswerFeedback(isCorrect, correctAnswerText) {
+    const timeMs = Date.now() - state.currentQuestionStartTime;
     const problem = state.wordList[state.currentIndex];
+    const isPrimaryTest = !state.isInterimReview && !state.isFinalCheckMode && !state.isRetryingCurrent;
+    
+    console.log(`[Q-One:Quiz] 回答検知: 解答時間 [${timeMs}]ms / 正誤: [${isCorrect}]`);
+
+    // DBへの記録をバックグラウンドで実行（エラーは確実にコンソールへ吐き出す）
+    saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest).catch(err => {
+        console.error('[Q-One:Error] saveAnswerToDB 実行中にエラー発生:', err);
+    });
+
     if (!state.isRetryingCurrent) {
         if (state.isInterimReview) {
             if (isCorrect) {
@@ -422,4 +433,69 @@ export function endInterimReview(resume) {
     modeIndicator.textContent = modeTitle;
     updateIncorrectListPanel();
     if (resume) showNextProblem();
+}
+
+async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
+    try {
+        const timestamp = Date.now();
+        
+        if (!problem.problemId) {
+            console.warn('[Q-One:Warning] problemId が存在しません。ログ保存に失敗する可能性があります。');
+        }
+
+        // 1. 解答ログの保存
+        await db.add('answer_logs', {
+            id: `${state.currentSessionId}-${timestamp}-${Math.random().toString(36).slice(2, 6)}`,
+            sessionId: state.currentSessionId,
+            problemId: problem.problemId || 'unknown',
+            isCorrect: isCorrect,
+            timeMs: timeMs,
+            userAnswer: null, 
+            isInterimReview: state.isInterimReview,
+            timestamp: timestamp
+        });
+        console.log(`[Q-One:DB] ログ保存完了 (answer_logs)`);
+
+        // 2. 問題の成績(Stats)の更新 (初回挑戦かつ本番テストの時のみ)
+        if (isPrimaryTest && problem.type !== 'check') {
+            // 対象が存在しない場合のNotFoundErrorを防ぐため catch して null にフォールバック
+            let stats = await db.get('problem_stats', problem.problemId).catch(() => null);
+            if (!stats) {
+                stats = {
+                    problemId: problem.problemId,
+                    problemText: problem.largeText,
+                    packIds: ['manual_input'],
+                    totalAnswers: 0,
+                    correctAnswers: 0,
+                    continuousCorrects: 0,
+                    averageTimeMs: 0,
+                    lastAnsweredAt: 0,
+                    lastMistakeAt: null
+                };
+            }
+
+            // 移動平均の計算
+            if (stats.totalAnswers > 0) {
+                stats.averageTimeMs = Math.round((stats.averageTimeMs * stats.totalAnswers + timeMs) / (stats.totalAnswers + 1));
+            } else {
+                stats.averageTimeMs = timeMs;
+            }
+
+            stats.totalAnswers++;
+            stats.lastAnsweredAt = timestamp;
+
+            if (isCorrect) {
+                stats.correctAnswers++;
+                stats.continuousCorrects++;
+            } else {
+                stats.continuousCorrects = 0;
+                stats.lastMistakeAt = timestamp;
+            }
+
+            await db.put('problem_stats', stats);
+            console.log(`[Q-One:DB] 成績表更新完了 (problem_stats)`);
+        }
+    } catch (err) {
+        console.error('[Q-One:Error] DB保存処理中に深刻な例外が発生しました:', err);
+    }
 }
