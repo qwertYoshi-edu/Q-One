@@ -1052,6 +1052,347 @@
         }
         #main-screen.list-open .list-overlay-main { display: block; opacity: 1; pointer-events: auto; }
 
+        /* ==========================================================================
+           Phase 4: card-design.html 完全移植スタイル (design-2 クリーン・アウトライン準拠)
+           ========================================================================== */
+        #mode-analysis:checked ~ .input-panels #panel-analysis { display: block; animation: panel-enter .26s ease both; }
+        #mode-analysis:checked ~ .input-nav [for="mode-analysis"] { border-bottom-color: var(--primary-color); color: var(--primary-color); }
+        @media (max-width: 899px) {
+            #mode-analysis:checked ~ .input-panels #panel-analysis { display: block; animation: mobile-panel-enter .2s ease both; }
+            #mode-analysis:checked ~ .input-nav [for="mode-analysis"] { border-color: var(--primary-color); background: var(--success-bg); color: #059669; }
+            #mode-analysis:checked ~ #mobile-settings-fab { display: none; }
+        }
+
+        /* mockup: .q-card の完全再現 */
+        .q-card {
+            --accent: #3B82F6;
+            --soft: #EFF6FF;
+            --tint: #DBEAFE;
+            position: relative;
+            isolation: isolate;
+            width: 100%;
+            min-width: 0;
+            aspect-ratio: 1 / 1;
+            overflow: hidden;
+            border: 1.5px solid #DDE4E8;
+            border-radius: 11px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            color: #1F2937;
+            container-type: inline-size;
+            box-shadow: none;
+            text-align: left;
+            cursor: pointer;
+            outline: none;
+            transition: border-color .18s, box-shadow .18s, transform .18s;
+        }
+        .q-card::before {
+            content: "";
+            position: absolute;
+            z-index: 2;
+            inset: 0 0 auto;
+            height: 4px;
+            background: var(--accent);
+        }
+        .q-card:hover {
+            box-shadow: 0 8px 16px rgba(0,0,0,.08);
+            transform: translateY(-2px);
+        }
+        .q-card:focus-visible, .q-card.is-selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--tint);
+        }
+
+        /* カラーバリエーション */
+        .q-card.math, .q-card.theme-blue { --accent: #3B82F6; --soft: #EFF6FF; --tint: #DBEAFE; }
+        .q-card.japanese, .q-card.theme-red { --accent: #EF4444; --soft: #FEF2F2; --tint: #FEE2E2; }
+        .q-card.user, .q-card.theme-green { --accent: #10B981; --soft: #ECFDF5; --tint: #D1FAE5; }
+        .q-card.theme-yellow { --accent: #F59E0B; --soft: #FFFBEB; --tint: #FEF3C7; }
+        .q-card.theme-purple { --accent: #8B5CF6; --soft: #F5F3FF; --tint: #EDE9FE; }
+
+        /* ダークモード対応 */
+        [data-theme="dark"] .q-card {
+            background: #1E1E1E;
+            border-color: #333333;
+            color: #E5E7EB;
+        }
+        [data-theme="dark"] .q-card.theme-blue { --soft: #1E293B; --tint: #334155; }
+        [data-theme="dark"] .q-card.theme-red { --soft: #371B1B; --tint: #4C1D1D; }
+        [data-theme="dark"] .q-card.theme-green { --soft: #132E22; --tint: #14532D; }
+        [data-theme="dark"] .q-card.theme-yellow { --soft: #342410; --tint: #451A03; }
+        [data-theme="dark"] .q-card.theme-purple { --soft: #281B3D; --tint: #3B0764; }
+
+        .q-card .top {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+            padding: 9px 8px 4px;
+            background: #fff;
+            color: #1F2937;
+        }
+        [data-theme="dark"] .q-card .top { background: #1E1E1E; color: #E5E7EB; }
+
+        .q-card .category-row {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 4px;
+            min-height: 13px;
+        }
+        .q-card .badge {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            max-width: calc(100% - 18px);
+            font-size: clamp(8.5px, 5.4cqi, 10px);
+            line-height: 1.15;
+            font-weight: 850;
+            letter-spacing: -.02em;
+            color: var(--accent);
+            background: var(--soft);
+            border: 1px solid var(--tint);
+            border-radius: 4px;
+            padding: 3px 5px;
+            overflow-wrap: anywhere;
+        }
+        .q-card .app-icon {
+            width: 15px;
+            height: 14px;
+            flex: 0 0 15px;
+            color: var(--accent);
+            opacity: .95;
+        }
+        .q-card .app-icon svg { width: 100%; height: 100%; display: block; }
+
+        .q-card .card-title {
+            min-width: 0;
+            font-size: clamp(13px, 8.2cqi, 15px);
+            line-height: 1.12;
+            font-weight: 850;
+            letter-spacing: -.04em;
+            color: inherit;
+            overflow-wrap: anywhere;
+            word-break: normal;
+        }
+
+        .q-card .metric-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-height: 0;
+            min-width: 0;
+            flex: 1;
+            padding: 4px 7px 3px;
+            padding-top: 2px;
+        }
+        .q-card .main-symbol {
+            width: 30px;
+            height: 30px;
+            flex: 0 0 30px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3px;
+            border-radius: 8px;
+            background: var(--soft);
+        }
+        .q-card .main-symbol svg { width: 100%; height: 100%; display: block; }
+
+        .q-card .metric-content {
+            min-width: 0;
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 3px;
+            flex-wrap: wrap;
+        }
+        .q-card .metric-number {
+            font-size: clamp(31px, 19.5cqi, 36px);
+            line-height: .95;
+            font-weight: 900;
+            letter-spacing: -.07em;
+            font-variant-numeric: tabular-nums;
+            color: var(--accent);
+        }
+        .q-card .metric-unit {
+            font-size: clamp(12px, 7.5cqi, 13.5px);
+            line-height: 1;
+            font-weight: 850;
+            letter-spacing: -.04em;
+            color: inherit;
+        }
+
+        .q-card .detail {
+            min-width: 0;
+            padding: 0 8px 4px;
+            font-size: clamp(8.5px, 5.2cqi, 9.5px);
+            line-height: 1.22;
+            font-weight: 700;
+            color: var(--secondary-color);
+            overflow-wrap: anywhere;
+        }
+        .q-card .excerpt {
+            padding-left: 5px;
+            border-left: 2px solid var(--accent);
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+            line-height: 1.2;
+            font-size: clamp(8.5px, 5.2cqi, 9.3px);
+            font-weight: 750;
+        }
+
+        .q-card .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 3px;
+            min-width: 0;
+            padding: 4px 8px 7px;
+            font-size: clamp(7.6px, 4.7cqi, 8.5px);
+            line-height: 1.1;
+            font-weight: 850;
+            letter-spacing: -.025em;
+            color: var(--secondary-color);
+            margin-top: auto;
+            border-top: 1px solid #EEF0F2;
+            padding-top: 5px;
+        }
+        [data-theme="dark"] .q-card .footer { border-top-color: #333333; }
+        .q-card .footer span, .q-card .footer time { min-width: 0; white-space: nowrap; }
+        .q-card .footer .status { color: var(--accent); }
+        .q-card .footer time { font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -.04em; }
+
+        /* ドーナツチャートスタイル */
+        .q-card .donut-wrap {
+            width: clamp(40px, 25cqi, 46px);
+            height: clamp(40px, 25cqi, 46px);
+            flex: 0 0 clamp(40px, 25cqi, 46px);
+            position: relative;
+        }
+        .q-card .donut-chart { width: 100%; height: 100%; display: block; transform: rotate(-90deg); }
+        .q-card .donut-bg { fill: none; stroke: #E5E7EB; stroke-width: 4.5; }
+        [data-theme="dark"] .q-card .donut-bg { stroke: #333333; }
+        .q-card .donut-fill { fill: none; stroke: var(--accent); stroke-width: 4.5; stroke-linecap: butt; }
+        .q-card .donut-txt {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: clamp(11px, 6.8cqi, 13px); line-height: 1; font-weight: 900; letter-spacing: -.06em; color: inherit;
+        }
+        .q-card .progress-label { font-size: clamp(7.8px, 4.7cqi, 8.5px); font-weight: 900; letter-spacing: .035em; color: var(--secondary-color); line-height: 1.1; margin-bottom: 2px; }
+        .q-card .progress-value { font-size: clamp(22px, 13.5cqi, 25px); line-height: .95; font-weight: 900; letter-spacing: -.065em; color: var(--accent); white-space: nowrap; }
+        .q-card .progress-value small { font-size: clamp(8.5px, 5.1cqi, 9.5px); font-weight: 850; letter-spacing: -.04em; color: inherit; }
+
+        /* ==========================================================================
+           Phase 4: 苦手分析タブ (#panel-analysis) の専用スタイル
+           ========================================================================== */
+        .analysis-panel-content { width: 100%; text-align: left; }
+        .analysis-controls {
+            display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+            flex-wrap: wrap; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);
+        }
+        .analysis-filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+        .filter-item { display: flex; align-items: center; gap: .5rem; font-size: 0.9rem; font-weight: 600; color: var(--secondary-color); }
+        .analysis-select {
+            padding: 0.45rem 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+            background: var(--card-bg); color: var(--text-color); font-family: inherit; font-size: 0.9rem; outline: none;
+        }
+        .analysis-train-btn { width: auto; min-height: 42px; padding: 0.6rem 1.4rem; font-size: 0.95rem; }
+        
+        .analysis-summary-badge-row { display: flex; gap: 0.8rem; margin-bottom: 1rem; }
+        .stat-pill {
+            padding: 0.3rem 0.8rem; border-radius: 99px; font-size: 0.82rem; font-weight: 700;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+        }
+        .stat-pill.red { background: var(--danger-bg); color: var(--danger-text-on-bg); border: 1px solid var(--danger-color); }
+        .stat-pill.yellow { background: #FEF3C7; color: #92400E; border: 1px solid #F59E0B; }
+        .stat-pill.green { background: var(--success-bg); color: var(--success-text-on-bg); border: 1px solid var(--success-color); }
+
+        .analysis-card-list {
+            display: flex; flex-direction: column; gap: 0.75rem; max-height: clamp(380px, 50vh, 600px);
+            overflow-y: auto; padding-right: 4px;
+        }
+        .analysis-problem-card {
+            background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+            padding: 1rem 1.2rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem;
+            align-items: center; transition: border-color .15s, transform .1s;
+        }
+        .analysis-problem-card:hover { border-color: var(--primary-color); }
+        .analysis-card-main { min-width: 0; }
+        .analysis-card-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
+        .analysis-badge {
+            font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 4px;
+        }
+        .analysis-badge.danger { background: var(--danger-bg); color: var(--danger-text-on-bg); }
+        .analysis-badge.warning { background: #FEF3C7; color: #92400E; }
+        .analysis-badge.safe { background: var(--success-bg); color: var(--success-text-on-bg); }
+
+        .analysis-card-q { font-size: 1.05rem; font-weight: 700; color: var(--text-color); margin: 0 0 0.3rem; overflow-wrap: anywhere; }
+        .analysis-card-ans { font-size: 0.9rem; color: var(--primary-color); font-weight: 600; }
+        
+        .analysis-card-stats {
+            display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; flex-shrink: 0;
+        }
+        .history-dots { display: flex; gap: 4px; }
+        .dot {
+            width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+            background: #E5E7EB;
+        }
+        .dot.correct { background: var(--success-color); }
+        .dot.incorrect { background: var(--danger-color); }
+        .analysis-speed-text { font-size: 0.8rem; font-weight: 600; color: var(--secondary-color); }
+
+        .analysis-empty-state {
+            padding: 3rem 1rem; text-align: center; color: var(--secondary-color);
+            display: flex; flex-direction: column; align-items: center; gap: 1rem;
+        }
+        .analysis-empty-state svg { width: 48px; height: 48px; opacity: 0.6; }
+
+        /* ==========================================================================
+           Phase 4: サムネイル設定モーダル (#pack-thumbnail-modal) の専用スタイル
+           ========================================================================== */
+        .thumbnail-modal-content { max-width: 720px; width: 92%; }
+        .modal-subtitle { color: var(--secondary-color); font-size: 0.95rem; margin-top: -0.5rem; margin-bottom: 1.5rem; }
+        .thumbnail-modal-body {
+            display: grid; grid-template-columns: 240px 1fr; gap: 2rem; align-items: start;
+        }
+        @media (max-width: 650px) {
+            .thumbnail-modal-body { grid-template-columns: 1fr; }
+            .preview-column { max-width: 220px; margin: 0 auto; }
+        }
+        .preview-column { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
+        .preview-label { font-size: 0.9rem; font-weight: 700; color: var(--secondary-color); }
+        .preview-canvas-wrapper { width: 100%; }
+        
+        .form-column { display: flex; flex-direction: column; gap: 1.2rem; }
+        .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+        .form-group label { font-size: 0.95rem; font-weight: 700; color: var(--text-color); }
+        .modal-input { margin-bottom: 0; text-align: left; }
+        
+        .color-palette-selector { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+        .color-option { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; cursor: pointer; }
+        .color-option input[type="radio"] { position: absolute; opacity: 0; }
+        .color-swatch {
+            width: 36px; height: 36px; border-radius: 50%; border: 2px solid transparent;
+            transition: transform .15s, border-color .15s;
+        }
+        .color-swatch.blue { background: #3B82F6; }
+        .color-swatch.red { background: #EF4444; }
+        .color-swatch.green { background: #10B981; }
+        .color-swatch.yellow { background: #F59E0B; }
+        .color-swatch.purple { background: #8B5CF6; }
+        .color-option input[type="radio"]:checked + .color-swatch {
+            transform: scale(1.15); border-color: var(--text-color);
+        }
+        .color-name { font-size: 0.75rem; font-weight: 600; color: var(--secondary-color); }
+        .thumbnail-modal-actions { margin-top: 1rem; }
+        
         @media (max-width: 768px) {
             #feedback-container { flex-direction: column; gap: 0.8rem; }
             #add-to-review-btn { position: static; transform: none; width: auto; padding: 6px 14px; font-size: 0.95rem; }
@@ -1116,7 +1457,9 @@
                     <input checked="" hidden="" id="mode-text" name="input_mode" type="radio"/>
                     <input hidden="" id="mode-file" name="input_mode" type="radio"/>
                     <input hidden="" id="mode-pack" name="input_mode" type="radio"/>
+                    <input hidden="" id="mode-analysis" name="input_mode" type="radio"/>
                     <input hidden="" id="mode-history" name="input_mode" type="radio"/>
+                    
                     <nav class="input-nav">
                         <label class="nav-item" for="mode-text">
                             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
@@ -1130,11 +1473,16 @@
                             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect height="20" rx="2.18" ry="2.18" width="20" x="2" y="2"></rect><line x1="7" x2="7" y1="2" y2="22"></line><line x1="17" x2="17" y1="2" y2="22"></line><line x1="2" x2="22" y1="12" y2="12"></line><line x1="2" x2="7" y1="7" y2="7"></line><line x1="2" x2="7" y1="17" y2="17"></line><line x1="17" x2="22" y1="17" y2="17"></line><line x1="17" x2="22" y1="7" y2="7"></line></svg>
                             <span>問題パック</span>
                         </label>
+                        <label class="nav-item" for="mode-analysis">
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"></path></svg>
+                            <span>苦手分析</span>
+                        </label>
                         <label class="nav-item" for="mode-history">
                             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                             <span>履歴</span>
                         </label>
                     </nav>
+
                     <div class="input-panels">
                         <!-- パネル1: テキストボックス -->
                         <div class="panel" id="panel-text">
@@ -1144,6 +1492,7 @@
                                 <button class="btn-secondary" id="save-my-problem-btn" type="button" disabled title="準備中">マイ問題に保存</button>
                             </div>
                         </div>
+
                         <!-- パネル2: テキストファイル -->
                         <div class="panel" id="panel-file">
                             <div class="file-drop-area">
@@ -1153,7 +1502,8 @@
                                 <button class="btn-secondary" type="button">ファイルを選択</button>
                             </div>
                         </div>
-                        <!-- パネル3: 問題パック -->
+
+                        <!-- パネル3: 問題パック (mockup HTML design-2 準拠) -->
                         <div class="panel" id="panel-pack">
                             <div class="pack-panel-content">
                                 <div aria-label="問題パック一覧" class="pack-grid">
@@ -1162,53 +1512,107 @@
                                         <span class="pack-add-title">新しい問題パック</span>
                                         <span class="pack-add-description">動画ファイルから読み込み</span>
                                     </button>
-                                    <!-- 新規読み込み用のinput (非表示) -->
                                     <input accept=".mp4,.mov" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
                                     
-                                    <div class="pack-card card-theme-blue">
-                                        <div class="pack-card-header">
-                                            <div class="pack-card-tag">問題パック / 数学</div>
-                                            <svg class="pack-card-header-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                                            <h4 class="pack-card-title">カードテスト01</h4>
+                                    <!-- mockup HTML 完全準拠カード 1 (数学) -->
+                                    <article class="q-card math" tabindex="0" role="button" aria-pressed="false" data-pack-id="math-sample">
+                                        <div class="top">
+                                            <div class="category-row">
+                                                <span class="badge">問題パック / 数学</span>
+                                                <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
+                                            </div>
+                                            <div class="card-title">高校数学Ⅰ・A<br>頻出公式・定理集</div>
                                         </div>
-                                        <div class="pack-card-body">
-                                            <svg fill="currentColor" viewBox="0 0 24 24"><path d="M21 4H6.5A2.5 2.5 0 0 0 4 6.5v11.16A2.5 2.5 0 0 0 6.5 20h14.5V4zm-3 8H9v-2h9v2zm0-4H9V6h9v2z"></path></svg>
-                                            <div class="pack-card-count-wrapper">
-                                                <span class="pack-card-count">100</span>
-                                                <span class="pack-card-unit">問</span>
+                                        <div class="metric-row">
+                                            <span class="main-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg></span>
+                                            <div class="metric-content"><span class="metric-number">120</span><span class="metric-unit">問</span></div>
+                                        </div>
+                                        <footer class="footer">
+                                            <span class="status">UNOPENED PACK</span>
+                                            <time>2024.10.25 14:30</time>
+                                        </footer>
+                                    </article>
+
+                                    <!-- mockup HTML 完全準拠カード 2 (国語・進捗あり) -->
+                                    <article class="q-card japanese" tabindex="0" role="button" aria-pressed="false" data-pack-id="japanese-sample">
+                                        <div class="top">
+                                            <div class="category-row">
+                                                <span class="badge">進捗保存 / 国語</span>
+                                                <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
+                                            </div>
+                                            <div class="card-title">現代文・重要語句<br>必須キーワード100</div>
+                                        </div>
+                                        <div class="metric-row">
+                                            <div class="donut-wrap">
+                                                <svg viewBox="0 0 36 36" class="donut-chart" aria-hidden="true">
+                                                    <path class="donut-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                                    <path class="donut-fill" stroke-dasharray="45, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                                </svg>
+                                                <span class="donut-txt">45%</span>
+                                            </div>
+                                            <div class="metric-content">
+                                                <div>
+                                                    <div class="progress-label">PROGRESS</div>
+                                                    <div class="progress-value">45 <small>/ 100問</small></div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div class="pack-card-footer">
-                                            <span class="pack-card-status">未開始</span>
-                                            <span class="pack-card-date">2026.10.07 20:10</span>
-                                        </div>
-                                    </div>
-                                    <div class="pack-card card-theme-green">
-                                        <div class="pack-card-header">
-                                            <div class="pack-card-tag">問題パック / 英語</div>
-                                            <svg class="pack-card-header-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                                            <h4 class="pack-card-title">基本英単語100</h4>
-                                        </div>
-                                        <div class="pack-card-body">
-                                            <svg fill="currentColor" viewBox="0 0 24 24"><path d="M21 4H6.5A2.5 2.5 0 0 0 4 6.5v11.16A2.5 2.5 0 0 0 6.5 20h14.5V4zm-3 8H9v-2h9v2zm0-4H9V6h9v2z"></path></svg>
-                                            <div class="pack-card-count-wrapper">
-                                                <span class="pack-card-count">100</span>
-                                                <span class="pack-card-unit">問</span>
-                                            </div>
-                                        </div>
-                                        <div class="pack-card-footer">
-                                            <span class="pack-card-status">完了</span>
-                                            <span class="pack-card-date">2026.10.05 14:30</span>
-                                        </div>
-                                    </div>
+                                        <div class="detail"><div class="excerpt">最新: Q.「敷居が高い」の本来の意味として適切な記述を選択せよ。</div></div>
+                                        <footer class="footer">
+                                            <span class="status">AUTO SAVED</span>
+                                            <time>2024.10.25 18:05</time>
+                                        </footer>
+                                    </article>
                                 </div>
                                 <p aria-live="polite" class="pack-file-status" id="pack-file-status" style="display:none"></p>
                             </div>
                         </div>
-                        <!-- パネル4: 履歴 (リトライ一覧) -->
+
+                        <!-- パネル4: 苦手分析 (🌟新規実装) -->
+                        <div class="panel" id="panel-analysis">
+                            <div class="analysis-panel-content">
+                                <div class="analysis-controls">
+                                    <div class="analysis-filters">
+                                        <div class="filter-item">
+                                            <label for="analysis-pack-select">対象パック:</label>
+                                            <select id="analysis-pack-select" class="analysis-select">
+                                                <option value="all">全パック横断</option>
+                                                <option value="manual_input">テキスト入力履歴</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label for="analysis-sort-select">ソート順:</label>
+                                            <select id="analysis-sort-select" class="analysis-select">
+                                                <option value="weakness">🚨 苦手度スコア順</option>
+                                                <option value="speed">🐢 解答速度が遅い順</option>
+                                                <option value="recent_mistake">🕒 直近ミス順</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button id="start-weakness-training-btn" class="btn-primary btn-with-icon analysis-train-btn" type="button" disabled>
+                                        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                        <span id="weakness-train-btn-text">表示中の苦手問題で特訓 (0問)</span>
+                                    </button>
+                                </div>
+
+                                <div class="analysis-summary-badge-row">
+                                    <span class="stat-pill red"><strong id="summary-danger-count">0</strong> 要復習</span>
+                                    <span class="stat-pill yellow"><strong id="summary-warning-count">0</strong> 迷い気味</span>
+                                    <span class="stat-pill green"><strong id="summary-safe-count">0</strong> 定着</span>
+                                </div>
+
+                                <div class="analysis-card-list" id="analysis-problem-list">
+                                    <div class="analysis-empty-state">
+                                        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                        <p>学習データがまだありません。<br>テストを解くとここに苦手分析が表示されます。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- パネル5: 履歴 -->
                         <div class="panel" id="panel-history">
                             <div aria-label="学習履歴" class="history-list">
-                                <!-- 置き換え対象: .history-entry -->
                                 <article class="history-entry">
                                     <div class="history-entry-main">
                                         <div class="history-header">
@@ -1231,7 +1635,8 @@
                             </div>
                         </div>
                     </div>
-<!-- モバイル用: 出題設定へ進むフローティングボタン -->
+
+                    <!-- モバイル用: 出題設定へ進むフローティングボタン -->
                     <div class="mobile-floating-action" id="mobile-settings-fab">
                         <button class="btn-primary btn-with-icon" type="button">
                             <span>出題設定へ進む</span>
@@ -1483,7 +1888,86 @@
         </div>
     </div>
     <div id="copy-modal" class="modal"><div class="modal-overlay"></div><div class="modal-content"><button class="modal-close-btn">&times;</button><h2>誤答問題リスト</h2><p>以下のテキストをコピーして、次回の学習に活用してください。</p><textarea id="copy-textarea" readonly></textarea></div></div>
+    <!-- 問題パック サムネイル設定モーダル -->
+    <div id="pack-thumbnail-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content thumbnail-modal-content">
+            <button class="modal-close-btn">&times;</button>
+            <h2>問題パックの出力設定</h2>
+            <p class="modal-subtitle">動画の先頭フレームに埋め込むカバー画像（サムネイル）を設定します。</p>
 
+            <div class="thumbnail-modal-body">
+                <!-- リアルタイムプレビュー (mockup HTML design-2 を完全再現) -->
+                <div class="preview-column">
+                    <label class="preview-label">プレビュー</label>
+                    <div class="preview-canvas-wrapper">
+                        <article class="q-card preview-card math" id="thumbnail-preview-card">
+                            <div class="top">
+                                <div class="category-row">
+                                    <span class="badge" id="preview-badge">問題パック / 数学</span>
+                                    <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
+                                </div>
+                                <div class="card-title" id="preview-title">高校数学Ⅰ・A<br>頻出公式・定理集</div>
+                            </div>
+                            <div class="metric-row">
+                                <span class="main-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg></span>
+                                <div class="metric-content"><span class="metric-number" id="preview-count">0</span><span class="metric-unit">問</span></div>
+                            </div>
+                            <footer class="footer">
+                                <span class="status">UNOPENED PACK</span>
+                                <time id="preview-date">2026.10.13</time>
+                            </footer>
+                        </article>
+                    </div>
+                </div>
+
+                <!-- フォーム設定列 -->
+                <div class="form-column">
+                    <div class="form-group">
+                        <label for="thumbnail-title-input">パックのタイトル</label>
+                        <input type="text" id="thumbnail-title-input" class="text-input modal-input" placeholder="例: 高校数学公式集" maxlength="30">
+                    </div>
+                    <div class="form-group">
+                        <label for="thumbnail-category-input">カテゴリ・タグ</label>
+                        <input type="text" id="thumbnail-category-input" class="text-input modal-input" placeholder="例: 数学 / 公式" maxlength="15">
+                    </div>
+                    <div class="form-group">
+                        <label>テーマカラー</label>
+                        <div class="color-palette-selector">
+                            <label class="color-option">
+                                <input type="radio" name="thumbnail_theme" value="blue" checked>
+                                <span class="color-swatch blue"></span>
+                                <span class="color-name">ブルー</span>
+                            </label>
+                            <label class="color-option">
+                                <input type="radio" name="thumbnail_theme" value="red">
+                                <span class="color-swatch red"></span>
+                                <span class="color-name">レッド</span>
+                            </label>
+                            <label class="color-option">
+                                <input type="radio" name="thumbnail_theme" value="green">
+                                <span class="color-swatch green"></span>
+                                <span class="color-name">グリーン</span>
+                            </label>
+                            <label class="color-option">
+                                <input type="radio" name="thumbnail_theme" value="yellow">
+                                <span class="color-swatch yellow"></span>
+                                <span class="color-name">イエロー</span>
+                            </label>
+                            <label class="color-option">
+                                <input type="radio" name="thumbnail_theme" value="purple">
+                                <span class="color-swatch purple"></span>
+                                <span class="color-name">パープル</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="thumbnail-modal-actions">
+                        <button id="confirm-export-pack-btn" class="btn-primary" type="button">この設定でパックを出力 (MP4)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- 処理中プログレスモーダル（動画生成・解析用） -->
     <div id="progress-modal" class="modal">
         <div class="modal-overlay" style="pointer-events: none;"></div>
