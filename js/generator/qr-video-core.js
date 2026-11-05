@@ -1,6 +1,7 @@
 // ============================================================================
 // 動画QR転送 コアロジックモジュール
 // UI（DOM）に依存せず、テキストと動画(MP4)の相互変換のみを担う
+// Phase 4: mockup HTML (design-2) 完全準拠のCanvas描画 & メタデータ連携
 // ============================================================================
 
 const PROTOCOL_MAGIC = new Uint8Array([0x56, 0x51, 0x52, 0x31]); // VQR1
@@ -23,9 +24,21 @@ const SETTINGS = {
     limit100: false
 };
 
+// mockup HTML準拠のテーマカラーパレット定義
+export const THEME_PALETTES = {
+    blue: { accent: '#3B82F6', soft: '#EFF6FF', tint: '#DBEAFE' },
+    red: { accent: '#EF4444', soft: '#FEF2F2', tint: '#FEE2E2' },
+    green: { accent: '#10B981', soft: '#ECFDF5', tint: '#D1FAE5' },
+    yellow: { accent: '#F59E0B', soft: '#FFFBEB', tint: '#FEF3C7' },
+    purple: { accent: '#8B5CF6', soft: '#F5F3FF', tint: '#EDE9FE' }
+};
+
+// mockup HTMLのSVGアイコンパス定義
+const APP_GLYPH_PATH = "M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z";
+
 // ------------------------
-// Helper Function
-// -------------------------
+// Helper Functions
+// ------------------------
 function concatBytes(...arrays) {
     const total = arrays.reduce((s, a) => s + a.length, 0);
     const out = new Uint8Array(total);
@@ -53,7 +66,24 @@ function bytesToBinaryString(bytes) {
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// 角丸矩形描画ヘルパー
+function drawRoundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.arcTo(x + width, y, x + width, y + radius, radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.arcTo(x + width, y + height, x + width - radius, y + height, radius);
+    ctx.lineTo(x + radius, y + height);
+    ctx.arcTo(x, y + height, x, y + height - radius, radius);
+    ctx.lineTo(x, y + radius);
+    ctx.arcTo(x, y, x + radius, y, radius);
+    ctx.closePath();
+}
+
+// ------------------------
 // CRC32 / SHA256 / Deflate
+// ------------------------
 const CRC_TABLE = (() => {
     const t = new Uint32Array(256);
     for (let n = 0; n < 256; n++) {
@@ -91,6 +121,28 @@ async function decompressBytes(bytes) {
 }
 function randomTransferId() {
     const x = new Uint8Array(8); crypto.getRandomValues(x); return x;
+}
+
+// -------------------------
+// メタデータ埋め込み＆抽出ヘルパー
+// -------------------------
+export function packageWithMetadata(text, meta) {
+    const metaHeader = `<!--QONE_META:${JSON.stringify(meta)}-->\n`;
+    return metaHeader + text;
+}
+
+export function extractMetadataAndText(rawText) {
+    const match = rawText.match(/^<!--QONE_META:(.*?)-->\r?\n?/s);
+    if (match) {
+        try {
+            const meta = JSON.parse(match[1]);
+            const text = rawText.substring(match[0].length);
+            return { meta, text };
+        } catch (e) {
+            console.warn('[Q-One:Core] メタデータ解析失敗:', e);
+        }
+    }
+    return { meta: null, text: rawText };
 }
 
 // -------------------------
@@ -175,40 +227,201 @@ function drawQRToCanvas(payload, targetCanvas) {
     return { side };
 }
 
-// -------------------------
-// Thumbnail (Q-One Style)
-// -------------------------
-function drawQOneThumbnail(canvas, side) {
-    canvas.width = side; canvas.height = side;
+// ----------------------------------------------------------------------------
+// Phase 4: mockup HTML (design-2 クリーン・アウトライン) Canvas完全再現描画
+// ----------------------------------------------------------------------------
+export function drawCustomThumbnail(canvas, side, options = {}) {
+    canvas.width = side;
+    canvas.height = side;
     const ctx = canvas.getContext('2d');
-    const g = ctx.createLinearGradient(0, 0, side, side);
-    g.addColorStop(0, '#EAFBF4'); // Q-One ミントグリーン系
-    g.addColorStop(1, '#A7E8CE');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, side, side);
     
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.beginPath(); ctx.arc(side * 0.5, side * 0.45, side * 0.25, 0, Math.PI * 2); ctx.fill();
+    // スケール計算 (mockup HTMLの基準幅 220px に対する比率)
+    const scale = side / 220;
+
+    const themeKey = options.themeColor || 'blue';
+    const palette = THEME_PALETTES[themeKey] || THEME_PALETTES.blue;
+    const title = options.title || '問題パック';
+    const category = options.category || '問題パック / 一般';
+    const count = options.count !== undefined ? String(options.count) : '0';
+    const dateStr = options.date || new Date().toISOString().slice(0, 10).replace(/-/g, '.');
+
+    ctx.save();
+
+    // 1. 全体背景（白）
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, side, side);
+
+    // 2. 上部4pxのアクセントライン
+    ctx.fillStyle = palette.accent;
+    ctx.fillRect(0, 0, side, 4 * scale);
+
+    // 3. 外枠線
+    ctx.strokeStyle = '#DDE4E8';
+    ctx.lineWidth = 1.5 * scale;
+    ctx.strokeRect(0.75 * scale, 0.75 * scale, side - 1.5 * scale, side - 1.5 * scale);
+
+    // 4. カテゴリバッジ
+    ctx.font = `850 ${9.5 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif`;
+    const badgeText = category;
+    const badgeMetrics = ctx.measureText(badgeText);
+    const badgePaddingX = 5 * scale;
+    const badgePaddingY = 3 * scale;
+    const badgeW = badgeMetrics.width + badgePaddingX * 2;
+    const badgeH = 12 * scale + badgePaddingY * 2;
+    const badgeX = 8 * scale;
+    const badgeY = 9 * scale;
+
+    // バッジ背景 (soft) & 枠線 (tint)
+    ctx.fillStyle = palette.soft;
+    ctx.strokeStyle = palette.tint;
+    ctx.lineWidth = 1 * scale;
+    drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 4 * scale);
+    ctx.fill();
+    ctx.stroke();
+
+    // バッジテキスト
+    ctx.fillStyle = palette.accent;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(badgeText, badgeX + badgePaddingX, badgeY + badgeH / 2);
+
+    // 5. 右上 appGlyph アイコン (SVGパス完全描画)
+    ctx.save();
+    const glyphSize = 15 * scale;
+    const glyphX = side - 8 * scale - glyphSize;
+    const glyphY = 10 * scale;
+    ctx.translate(glyphX, glyphY);
+    ctx.scale(glyphSize / 52, (glyphSize * (46 / 52)) / 46);
+    ctx.fillStyle = palette.accent;
+    const glyphPath = new Path2D(APP_GLYPH_PATH);
+    ctx.fill(glyphPath);
+    ctx.restore();
+
+    // 6. カードタイトル (最大2行の折返し描画)
+    ctx.fillStyle = '#1F2937';
+    ctx.font = `850 ${14 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    const titleX = 8 * scale;
+    const titleY = 32 * scale;
+    const maxTitleWidth = side - 16 * scale;
+    const lineHeight = 16 * scale;
+
+    // タイトルの折返し処理
+    const lines = [];
+    const words = title.split('<br>');
+    if (words.length > 1) {
+        lines.push(words[0], words.slice(1).join(' '));
+    } else {
+        let currentLine = '';
+        for (let i = 0; i < title.length; i++) {
+            const testLine = currentLine + title[i];
+            if (ctx.measureText(testLine).width > maxTitleWidth && i > 0) {
+                lines.push(currentLine);
+                currentLine = title[i];
+                if (lines.length === 2) break;
+            } else {
+                currentLine = testLine;
+            }
+        }
+        if (currentLine && lines.length < 2) lines.push(currentLine);
+    }
+    lines.slice(0, 2).forEach((l, idx) => {
+        ctx.fillText(l, titleX, titleY + idx * lineHeight);
+    });
+
+    // 7. メトリック行 (中央メインシンボル＋数値)
+    const centerY = side * 0.54;
+
+    // メインシンボル背景 (30x30 角丸正方形)
+    const symbolSize = 30 * scale;
+    const symbolX = side * 0.22 - symbolSize / 2;
+    const symbolY = centerY - symbolSize / 2;
+    ctx.fillStyle = palette.soft;
+    drawRoundRect(ctx, symbolX, symbolY, symbolSize, symbolSize, 8 * scale);
+    ctx.fill();
+
+    // メインシンボル: icons.book のSVGパスを描画
+    ctx.save();
+    ctx.translate(symbolX + 4 * scale, symbolY + 4 * scale);
+    const bookScale = (22 * scale) / 24;
+    ctx.scale(bookScale, bookScale);
+    ctx.strokeStyle = palette.accent;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'square';
+    ctx.lineJoin = 'miter';
+
+    const p1 = new Path2D("M4 19.5A2.5 2.5 0 0 1 6.5 17H20");
+    const p2 = new Path2D("M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z");
+    ctx.stroke(p1);
+    ctx.stroke(p2);
+    ctx.beginPath();
+    ctx.moveTo(9, 7); ctx.lineTo(15, 7);
+    ctx.moveTo(9, 11); ctx.lineTo(13, 11);
+    ctx.stroke();
+    ctx.restore();
+
+    // 問題数カウント数値
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = palette.accent;
+    ctx.font = `900 ${36 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const numX = side * 0.44;
+    const numY = centerY + 12 * scale;
+    ctx.fillText(count, numX, numY);
+
+    const numWidth = ctx.measureText(count).width;
+    // 単位「問」
+    ctx.fillStyle = '#1F2937';
+    ctx.font = `850 ${13 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif`;
+    ctx.fillText('問', numX + numWidth + 4 * scale, numY);
+
+    // 8. フッター (境界線・ステータス・日時)
+    const footerY = side - 18 * scale;
+    ctx.strokeStyle = '#EEF0F2';
+    ctx.lineWidth = 1 * scale;
+    ctx.beginPath();
+    ctx.moveTo(8 * scale, footerY);
+    ctx.lineTo(side - 8 * scale, footerY);
+    ctx.stroke();
+
+    ctx.font = `850 ${8 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.textBaseline = 'bottom';
     
-    // Q-One Logo-like icon
-    ctx.strokeStyle = '#10B981'; ctx.lineWidth = side * 0.03;
-    ctx.beginPath(); ctx.arc(side * 0.5, side * 0.45, side * 0.15, 0, Math.PI * 2); ctx.stroke();
-    
-    ctx.fillStyle = '#064E3B';
-    ctx.font = `800 ${Math.max(20, side * 0.08)}px system-ui,sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Q-One PACK', side / 2, side * 0.8);
+    // ステータス
+    ctx.fillStyle = palette.accent;
+    ctx.textAlign = 'left';
+    ctx.fillText('UNOPENED PACK', 8 * scale, side - 6 * scale);
+
+    // 日時
+    ctx.fillStyle = '#6B7280';
+    ctx.textAlign = 'right';
+    ctx.fillText(dateStr, side - 8 * scale, side - 6 * scale);
+
+    ctx.restore();
 }
 
 // -------------------------
 // Encode (Generate Video)
 // -------------------------
-export async function encodeToVideo(text, onProgress) {
+export async function encodeToVideo(text, onProgress, options = {}) {
     if (!text.trim()) throw new Error('テキストが空です。');
     if (!window.qrcode || !window.Mp4Muxer || !('VideoEncoder' in window)) {
         throw new Error('必要なライブラリまたはブラウザAPIが不足しています。');
     }
 
-    const textBytes = new TextEncoder().encode(text);
+    // メタデータの自動パッケージ化
+    const meta = {
+        title: options.title || '問題パック',
+        category: options.category || '問題パック',
+        themeColor: options.themeColor || 'blue',
+        count: options.count || 0,
+        createdAt: Date.now()
+    };
+    const packagedText = packageWithMetadata(text, meta);
+    const textBytes = new TextEncoder().encode(packagedText);
+
     const cap = getQRCapacity(SETTINGS.version, SETTINGS.ec);
     const payloadSize = Math.max(0, cap - HEADER_SIZE - SETTINGS.reserve);
     if (payloadSize <= 0) throw new Error('容量計算エラー。データを格納できません。');
@@ -265,7 +478,8 @@ export async function encodeToVideo(text, onProgress) {
         if (encoderError) throw encoderError;
 
         if (fi === 0) {
-            drawQOneThumbnail(outputCanvas, actualSide);
+            // 第1フレームに mockup HTML design-2 完全準拠のカスタムサムネイルを描画
+            drawCustomThumbnail(outputCanvas, actualSide, meta);
         } else {
             drawQRToCanvas(packets[fi - 1], qrCanvas);
             const ctx = outputCanvas.getContext('2d');
@@ -335,7 +549,6 @@ function computeFrameSignature(data, width, height) {
 export async function decodeFromVideo(file, onProgress, isStopped) {
     if (!window.MP4Box || !('VideoDecoder' in window)) throw new Error('ブラウザが動画解析に非対応です。');
     
-    // UIブロックを防ぐため、jsQRの読み込みをWorker内で行う
     const workerCode = `
         self.importScripts('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
         self.onmessage = function(e) {
