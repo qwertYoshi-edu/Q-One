@@ -506,6 +506,7 @@ async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
                 stats = {
                     problemId: problem.problemId,
                     problemText: problem.largeText,
+                    problemData: { ...problem },
                     packIds: ['manual_input'],
                     totalAnswers: 0,
                     correctAnswers: 0,
@@ -514,6 +515,8 @@ async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
                     lastAnsweredAt: 0,
                     lastMistakeAt: null
                 };
+            } else {
+                stats.problemData = { ...problem };
             }
 
             // 移動平均の計算
