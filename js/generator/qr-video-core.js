@@ -24,13 +24,19 @@ const SETTINGS = {
     limit100: false
 };
 
-// mockup HTML準拠のテーマカラーパレット定義
+// mockup HTML準拠のテーマカラーパレット定義（全11色）
 export const THEME_PALETTES = {
-    blue: { accent: '#3B82F6', soft: '#EFF6FF', tint: '#DBEAFE' },
     red: { accent: '#EF4444', soft: '#FEF2F2', tint: '#FEE2E2' },
-    green: { accent: '#10B981', soft: '#ECFDF5', tint: '#D1FAE5' },
+    blue: { accent: '#3B82F6', soft: '#EFF6FF', tint: '#DBEAFE' },
     yellow: { accent: '#F59E0B', soft: '#FFFBEB', tint: '#FEF3C7' },
-    purple: { accent: '#8B5CF6', soft: '#F5F3FF', tint: '#EDE9FE' }
+    green: { accent: '#10B981', soft: '#ECFDF5', tint: '#D1FAE5' },
+    purple: { accent: '#8B5CF6', soft: '#F5F3FF', tint: '#EDE9FE' },
+    orange: { accent: '#F97316', soft: '#FFF7ED', tint: '#FFEDD5' },
+    cyan: { accent: '#06B6D4', soft: '#ECFEFF', tint: '#CFFAFE' },
+    'light-gray': { accent: '#6B7280', soft: '#F9FAFB', tint: '#E5E7EB' },
+    'dark-gray': { accent: '#374151', soft: '#F3F4F6', tint: '#D1D5DB' },
+    navy: { accent: '#1E3A8A', soft: '#EFF6FF', tint: '#BFDBFE' },
+    'deep-red': { accent: '#991B1B', soft: '#FEF2F2', tint: '#FECACA' }
 };
 
 // mockup HTMLのSVGアイコンパス定義
