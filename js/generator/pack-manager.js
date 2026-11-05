@@ -1,9 +1,8 @@
 // ============================================================================
 // 問題パック管理 UIコントローラー
-// Phase 4: サムネイル設定モーダル & mockup準拠カード動的生成 & DB連携
 // ============================================================================
 
-import { encodeToVideo, decodeFromVideo, extractMetadataAndText } from './qr-video-core.js';
+import { encodeToVideo, decodeFromVideo, extractMetadataAndText, packageWithMetadata } from './qr-video-core.js';
 import * as DB from '../main/db.js';
 import { parseText } from '../main/parser.js';
 import { escapeHtml } from '../main/utils.js';
@@ -13,14 +12,18 @@ const exportPackBtn = document.getElementById('export-pack-btn');
 const addPackBtn = document.getElementById('add-pack-btn');
 const packFileInput = document.getElementById('pack-file-input');
 const inputText = document.getElementById('input-text');
-const modeTextRadio = document.getElementById('mode-text');
 const packGrid = document.querySelector('.pack-grid');
 
-// サムネイル設定モーダル関連
+// 設定モーダル関連（エクスポート・インポート兼用）
 const thumbnailModal = document.getElementById('pack-thumbnail-modal');
+const modalTitleText = document.getElementById('pack-modal-title-text');
+const modalSubtitleText = document.getElementById('pack-modal-subtitle-text');
+
 const thumbnailTitleInput = document.getElementById('thumbnail-title-input');
-const thumbnailCategoryInput = document.getElementById('thumbnail-category-input');
-const confirmExportPackBtn = document.getElementById('confirm-export-pack-btn');
+const thumbnailSubjectSelect = document.getElementById('thumbnail-subject-select');
+const thumbnailSubjectCustom = document.getElementById('thumbnail-subject-custom');
+const thumbnailThemeSelect = document.getElementById('thumbnail-theme-select');
+const confirmPackModalBtn = document.getElementById('confirm-pack-modal-btn');
 
 // リアルタイムプレビュー要素
 const previewCard = document.getElementById('thumbnail-preview-card');
@@ -37,10 +40,12 @@ const progressStatus = document.getElementById('progress-modal-status');
 const progressCancelBtn = document.getElementById('progress-modal-cancel');
 
 let isProcessCanceled = false;
-let currentExportProblems = [];
+let currentTargetProblems = [];
+let currentModalMode = 'export'; // 'export' | 'import_txt'
+let pendingImportRawText = '';
 
 // ============================================================================
-// プログレスモーダル制御
+// プログレスUI制御
 // ============================================================================
 function showProgressModal(title) {
     isProcessCanceled = false;
@@ -50,16 +55,11 @@ function showProgressModal(title) {
     progressCancelBtn.style.display = 'inline-flex';
     progressModal.classList.add('active');
 }
-
-function hideProgressModal() {
-    progressModal.classList.remove('active');
-}
-
+function hideProgressModal() { progressModal.classList.remove('active'); }
 function updateProgressUI(ratio, message) {
     progressBar.style.width = `${Math.min(100, Math.max(0, ratio * 100))}%`;
     if (message) progressStatus.textContent = message;
 }
-
 function triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -67,31 +67,29 @@ function triggerDownload(blob, filename) {
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, 1000);
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
 }
 
 // ============================================================================
-// サムネイル設定モーダル & リアルタイムプレビュー制御
+// モーダル・プレビュー制御
 // ============================================================================
-function getSelectedThemeColor() {
-    const checked = document.querySelector('input[name="thumbnail_theme"]:checked');
-    return checked ? checked.value : 'blue';
+function getSelectedThemeColor() { return thumbnailThemeSelect.value || 'blue'; }
+
+function getSelectedSubject() {
+    return thumbnailSubjectSelect.value === '他' 
+        ? thumbnailSubjectCustom.value.trim() || 'その他'
+        : thumbnailSubjectSelect.value;
 }
 
 function updateThumbnailPreview() {
     if (!previewCard) return;
-
     const title = thumbnailTitleInput.value.trim() || '問題パック';
-    const category = thumbnailCategoryInput.value.trim() || '問題パック / 一般';
+    const category = getSelectedSubject();
     const theme = getSelectedThemeColor();
-    const count = currentExportProblems.length;
+    const count = currentTargetProblems.length;
     const now = new Date();
     const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')}`;
 
-    // クラス切り替え (mockup HTML design-2 準拠)
     previewCard.className = `q-card preview-card theme-${theme}`;
     previewBadge.textContent = category;
     previewTitle.innerHTML = escapeHtml(title).replace(/\n/g, '<br>');
@@ -99,72 +97,127 @@ function updateThumbnailPreview() {
     previewDate.textContent = dateStr;
 }
 
-function openThumbnailModal() {
-    const text = inputText.value.trim();
-    if (!text) {
-        alert('出力する問題データが入力されていません。\nテキストエリアに問題を入力してください。');
-        return;
+// 「他」が選ばれたら自由記述欄を表示
+thumbnailSubjectSelect.addEventListener('change', () => {
+    thumbnailSubjectCustom.style.display = thumbnailSubjectSelect.value === '他' ? 'block' : 'none';
+    updateThumbnailPreview();
+});
+
+function openPackModal(mode, initialText = '', initialMeta = null) {
+    currentModalMode = mode;
+    
+    if (mode === 'export') {
+        const text = inputText.value.trim();
+        if (!text) {
+            alert('出力する問題データが入力されていません。\nテキストエリアに問題を入力してください。');
+            return;
+        }
+        currentTargetProblems = parseText(text);
+        if (currentTargetProblems.length === 0) {
+            alert('有効な問題形式が見つかりません。形式を確認してください。');
+            return;
+        }
+        modalTitleText.textContent = '問題パックを出力 (動画化)';
+        modalSubtitleText.textContent = '動画の先頭フレームに埋め込むカバー画像（サムネイル）を設定します。';
+        confirmPackModalBtn.textContent = 'この設定でパックを出力 (MP4)';
+        
+    } else if (mode === 'import_txt') {
+        pendingImportRawText = initialText;
+        currentTargetProblems = parseText(initialText);
+        
+        modalTitleText.textContent = 'テキストの読み込みと保存設定';
+        modalSubtitleText.textContent = 'このテキストファイルを問題パックとしてアプリ内に保存します。';
+        confirmPackModalBtn.textContent = 'パックとして保存 (一覧に追加)';
     }
 
-    currentExportProblems = parseText(text);
-    if (currentExportProblems.length === 0) {
-        alert('有効な問題形式が見つかりません。形式を確認してください。');
-        return;
-    }
-
-    // デフォルト入力値のセット
-    if (!thumbnailTitleInput.value) {
-        thumbnailTitleInput.value = `特訓問題パック (${currentExportProblems.length}問)`;
-    }
-    if (!thumbnailCategoryInput.value) {
-        thumbnailCategoryInput.value = '問題パック / 復習';
+    // 初期値のセット
+    if (initialMeta) {
+        thumbnailTitleInput.value = initialMeta.title || '';
+        const cat = initialMeta.category || '数学';
+        // セレクトボックス内に存在するかチェック
+        if ([...thumbnailSubjectSelect.options].some(o => o.value === cat)) {
+            thumbnailSubjectSelect.value = cat;
+            thumbnailSubjectCustom.style.display = 'none';
+        } else {
+            thumbnailSubjectSelect.value = '他';
+            thumbnailSubjectCustom.value = cat;
+            thumbnailSubjectCustom.style.display = 'block';
+        }
+        thumbnailThemeSelect.value = initialMeta.themeColor || 'blue';
+    } else {
+        if (!thumbnailTitleInput.value) thumbnailTitleInput.value = `特訓問題パック (${currentTargetProblems.length}問)`;
     }
 
     updateThumbnailPreview();
     thumbnailModal.classList.add('active');
 }
-
-function closeThumbnailModal() {
-    thumbnailModal.classList.remove('active');
-}
+function closePackModal() { thumbnailModal.classList.remove('active'); }
 
 // ============================================================================
-// パック出力実行
+// 実行アクション (エクスポート or TXTインポート完了)
 // ============================================================================
-async function executeExportPack() {
-    closeThumbnailModal();
-    const text = inputText.value.trim();
+async function executeModalAction() {
     const title = thumbnailTitleInput.value.trim() || '問題パック';
-    const category = thumbnailCategoryInput.value.trim() || '問題パック';
+    const category = getSelectedSubject();
     const themeColor = getSelectedThemeColor();
-    const count = currentExportProblems.length;
+    const count = currentTargetProblems.length;
+    const meta = { title, category, themeColor, count, createdAt: Date.now() };
 
-    showProgressModal('問題パックを作成中...');
+    closePackModal();
 
-    try {
-        const options = { title, category, themeColor, count };
-        const videoBlob = await encodeToVideo(text, (ratio, message) => {
-            updateProgressUI(ratio, message);
-        }, options);
-
-        updateProgressUI(1.0, '動画ファイルの生成が完了しました！');
-        const filename = `${title.replace(/[\s\W]/g, '_')}_${Date.now()}.mp4`;
-        triggerDownload(videoBlob, filename);
-        
-        setTimeout(() => {
+    if (currentModalMode === 'export') {
+        const text = inputText.value.trim();
+        showProgressModal('問題パックを作成中...');
+        try {
+            const videoBlob = await encodeToVideo(text, (ratio, message) => updateProgressUI(ratio, message), meta);
+            updateProgressUI(1.0, '動画ファイルの生成が完了しました！');
+            const filename = `${title.replace(/[\s\W]/g, '_')}_${Date.now()}.mp4`;
+            triggerDownload(videoBlob, filename);
+            setTimeout(() => {
+                hideProgressModal();
+                alert(`問題パックを保存しました。\nファイル名: ${filename}`);
+            }, 500);
+        } catch (err) {
+            console.error('[Q-One:Error] パック出力エラー:', err);
             hideProgressModal();
-            alert(`問題パックを保存しました。\nファイル名: ${filename}`);
-        }, 500);
+            alert(`問題パックの出力に失敗しました:\n${err.message || err}`);
+        }
+    } else if (currentModalMode === 'import_txt') {
+        // TXTインポートの場合、DBに直接保存
+        try {
+            const packId = `pack_${Date.now()}`;
+            // 内部用フォーマット（メタデータ付きテキスト）に変換して保存
+            const packagedText = packageWithMetadata(pendingImportRawText, meta);
 
-    } catch (err) {
-        console.error('[Q-One:Error] パック出力エラー:', err);
-        hideProgressModal();
-        alert(`問題パックの出力に失敗しました:\n${err.message || err}`);
+            const packRecord = {
+                id: packId,
+                title: meta.title,
+                category: meta.category,
+                themeColor: meta.themeColor,
+                rawText: pendingImportRawText, // DBには純粋なテキストを保持（UI表示用）
+                problems: currentTargetProblems,
+                count: meta.count,
+                createdAt: meta.createdAt
+            };
+
+            await DB.put('packs', packRecord);
+            const newCardEl = createPackCardElement(packRecord);
+            newCardEl.setAttribute('data-dynamic', 'true');
+            packGrid.appendChild(newCardEl);
+            inputText.value = pendingImportRawText;
+            
+            // 自動選択
+            newCardEl.click();
+            alert(`テキスト「${title}」(${count}問) を読み込み、問題パック一覧に追加しました！`);
+        } catch (err) {
+            console.error('[Q-One:Error] txt保存エラー:', err);
+            alert(`テキストパックの保存に失敗しました:\n${err.message || err}`);
+        }
     }
 }
 
 // ============================================================================
-// パックインポート & カード動的生成 (mockup HTML design-2 完全移植)
+// ファイルインポート分岐（MP4 / TXT）
 // ============================================================================
 export function createPackCardElement(pack) {
     const article = document.createElement('article');
@@ -175,15 +228,15 @@ export function createPackCardElement(pack) {
     article.dataset.packId = pack.id;
     
     const now = new Date(pack.createdAt || Date.now());
-    const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')}`;
 
     article.innerHTML = `
         <div class="top">
             <div class="category-row">
-                <span class="badge">${escapeHtml(pack.category || '問題パック')}</span>
+                <span class="badge">${escapeHtml(pack.category || '一般')}</span>
                 <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
             </div>
-            <div class="card-title">${escapeHtml(pack.title || '無題のパック')}</div>
+            <div class="card-title">${escapeHtml(pack.title || '無題のパック').replace(/\n/g, '<br>')}</div>
         </div>
         <div class="metric-row">
             <span class="main-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg></span>
@@ -195,7 +248,6 @@ export function createPackCardElement(pack) {
         </footer>
     `;
 
-    // カード選択・読み込みインタラクション
     article.addEventListener('click', () => {
         document.querySelectorAll('.pack-grid .q-card').forEach(c => {
             c.classList.remove('is-selected');
@@ -204,12 +256,9 @@ export function createPackCardElement(pack) {
         article.classList.add('is-selected');
         article.setAttribute('aria-pressed', 'true');
         
-        // テキストエリアに問題データを注入
         if (inputText && pack.rawText) {
             inputText.value = pack.rawText;
         }
-
-        // スマホ画面等でスムーズに出題設定ができるよう通知
         const statusEl = document.getElementById('pack-file-status');
         if (statusEl) {
             statusEl.style.display = 'block';
@@ -220,14 +269,11 @@ export function createPackCardElement(pack) {
     return article;
 }
 
-// DBから保存済みパックをロードして一覧に描画
 export async function loadSavedPacksFromDB() {
     if (!packGrid) return;
     try {
         await DB.initDB();
         const savedPacks = await DB.getAll('packs');
-        
-        // 既存の動的カードをクリア（追加タイルと初期サンプルは残す）
         const dynamicCards = packGrid.querySelectorAll('.q-card[data-dynamic="true"]');
         dynamicCards.forEach(c => c.remove());
 
@@ -236,36 +282,48 @@ export async function loadSavedPacksFromDB() {
             cardEl.setAttribute('data-dynamic', 'true');
             packGrid.appendChild(cardEl);
         });
-        console.log(`[Q-One:Pack] 保存済みパック描画完了: ${savedPacks.length}件`);
-    } catch (err) {
-        console.error('[Q-One:Error] パック描画失敗:', err);
-    }
+    } catch (err) { console.error('[Q-One:Error] パック描画失敗:', err); }
 }
 
-// パック読み込み処理
 async function handleImportPack(file) {
     if (!file) return;
 
-    showProgressModal('問題パックを解析中...');
+    if (file.name.toLowerCase().endsWith('.txt')) {
+        // TXTファイルの場合
+        try {
+            const rawFileText = await file.text();
+            const { meta, text: pureText } = extractMetadataAndText(rawFileText);
+            
+            // 初期のタイトル推測
+            if (!meta) {
+                openPackModal('import_txt', pureText, { title: file.name.replace(/\.[^/.]+$/, "") });
+            } else {
+                openPackModal('import_txt', pureText, meta);
+            }
+        } catch (err) {
+            alert('テキストファイルの読み込みに失敗しました。');
+        }
+        packFileInput.value = '';
+        return;
+    }
 
+    // MP4(動画QR)ファイルの場合
+    showProgressModal('問題パックを解析中...');
     try {
         const rawRestoredText = await decodeFromVideo(
             file,
             (ratio, message) => updateProgressUI(ratio, message),
             () => isProcessCanceled
         );
-
-        updateProgressUI(0.95, 'メタデータを解析中...');
+        updateProgressUI(0.95, 'データを登録中...');
         
-        // メタデータと純粋なテキストを分離
         const { meta, text: pureText } = extractMetadataAndText(rawRestoredText);
         const parsedProblems = parseText(pureText);
 
-        const packId = `pack_${Date.now()}`;
         const packRecord = {
-            id: packId,
+            id: `pack_${Date.now()}`,
             title: meta?.title || file.name.replace(/\.[^/.]+$/, ""),
-            category: meta?.category || '問題パック / インポート',
+            category: meta?.category || '問題パック',
             themeColor: meta?.themeColor || 'blue',
             rawText: pureText,
             problems: parsedProblems,
@@ -273,71 +331,46 @@ async function handleImportPack(file) {
             createdAt: meta?.createdAt || Date.now()
         };
 
-        // IndexedDB の packs ストアに保存
         await DB.put('packs', packRecord);
-
-        // ホーム画面のカード一覧に即座に追加
         const newCardEl = createPackCardElement(packRecord);
         newCardEl.setAttribute('data-dynamic', 'true');
         packGrid.appendChild(newCardEl);
-
-        // テキスト入力欄に反映
         inputText.value = pureText;
 
         updateProgressUI(1.0, '復元＆登録完了！');
-
         setTimeout(() => {
             hideProgressModal();
-            // 自動的に新カードを選択状態にする
             newCardEl.click();
-            alert(`「${packRecord.title}」(${packRecord.count}問) を読み込み、問題パック一覧に追加しました！`);
+            alert(`「${packRecord.title}」(${packRecord.count}問) を読み込みました！`);
         }, 500);
-
     } catch (err) {
-        console.error('[Q-One:Error] パック読み込みエラー:', err);
+        console.error('[Q-One:Error] 動画パック読み込みエラー:', err);
         hideProgressModal();
-        if (!isProcessCanceled) {
-            alert(`問題パックの読み込みに失敗しました:\n${err.message || err}`);
-        }
+        if (!isProcessCanceled) alert(`読み込みに失敗しました:\n${err.message || err}`);
     } finally {
         packFileInput.value = '';
     }
 }
 
 // ============================================================================
-// 初期化
+// 初期化処理
 // ============================================================================
 export function initPackManager() {
-    // パック出力ボタン -> サムネイルモーダル起動
-    if (exportPackBtn) {
-        exportPackBtn.addEventListener('click', openThumbnailModal);
-    }
+    if (exportPackBtn) exportPackBtn.addEventListener('click', () => openPackModal('export'));
 
-    // モーダル閉じるボタン・オーバーレイ
     if (thumbnailModal) {
         const overlay = thumbnailModal.querySelector('.modal-overlay');
         const closeBtn = thumbnailModal.querySelector('.modal-close-btn');
-        if (overlay) overlay.addEventListener('click', closeThumbnailModal);
-        if (closeBtn) closeBtn.addEventListener('click', closeThumbnailModal);
+        if (overlay) overlay.addEventListener('click', closePackModal);
+        if (closeBtn) closeBtn.addEventListener('click', closePackModal);
     }
 
-    // プレビューのリアルタイム更新監視
-    if (thumbnailTitleInput) {
-        thumbnailTitleInput.addEventListener('input', updateThumbnailPreview);
-    }
-    if (thumbnailCategoryInput) {
-        thumbnailCategoryInput.addEventListener('input', updateThumbnailPreview);
-    }
-    document.querySelectorAll('input[name="thumbnail_theme"]').forEach(r => {
-        r.addEventListener('change', updateThumbnailPreview);
-    });
+    if (thumbnailTitleInput) thumbnailTitleInput.addEventListener('input', updateThumbnailPreview);
+    if (thumbnailSubjectCustom) thumbnailSubjectCustom.addEventListener('input', updateThumbnailPreview);
+    if (thumbnailThemeSelect) thumbnailThemeSelect.addEventListener('change', updateThumbnailPreview);
 
-    // 確定エクスポートボタン
-    if (confirmExportPackBtn) {
-        confirmExportPackBtn.addEventListener('click', executeExportPack);
-    }
+    if (confirmPackModalBtn) confirmPackModalBtn.addEventListener('click', executeModalAction);
 
-    // パック追加タイル -> ファイルダイアログ
     if (addPackBtn && packFileInput) {
         addPackBtn.addEventListener('click', () => packFileInput.click());
         packFileInput.addEventListener('change', (e) => {
@@ -346,7 +379,6 @@ export function initPackManager() {
         });
     }
 
-    // キャンセルボタン
     if (progressCancelBtn) {
         progressCancelBtn.addEventListener('click', () => {
             isProcessCanceled = true;
@@ -355,6 +387,5 @@ export function initPackManager() {
         });
     }
 
-    // 初回起動時のDBパック一覧描画
     loadSavedPacksFromDB();
 }
