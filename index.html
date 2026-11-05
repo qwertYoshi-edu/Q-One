@@ -80,7 +80,6 @@
         
         /* ===== ダークモード用テーマ変数 ===== */
         [data-theme="dark"] {
-            /* 彩度を下げた、落ち着いた無彩色寄りのダークテーマ */
             --background-color: #121212;
             --card-bg: #1E1E1E;
             --text-color: #E5E7EB;
@@ -91,8 +90,7 @@
             --success-text-on-bg: #A7F3D0;
             --danger-bg: #4A1515;
             --danger-text-on-bg: #FECACA;
-            
-            /* 新規追加・変数化した色 */
+
             --pack-add-bg: #1A1A1A;
             --pack-add-border: #2C5E47;
             --pack-add-icon-bg: #113626;
@@ -295,29 +293,48 @@
         .pack-panel-content { width: 100%; }
         .pack-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 1.2rem;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 0.9rem;
             max-height: 560px;
             overflow-y: auto;
             padding: .5rem;
         }
         .pack-add-tile {
-            min-height: 235px; width: 100%; padding: 1.5rem 1rem; display: flex;
-            flex-direction: column; align-items: center; justify-content: center;
-            gap: .7rem; color: var(--secondary-color); background: var(--pack-add-bg);
-            border: 1.5px dashed var(--pack-add-border); border-radius: var(--radius-md);
-            text-align: center; box-shadow: none; cursor: pointer;
+            aspect-ratio: 1 / 1;
+            width: 100%;
+            height: auto;
+            min-height: unset;
+            padding: 0.8rem 0.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: .4rem;
+            color: var(--secondary-color);
+            background: var(--pack-add-bg);
+            border: 1.5px dashed var(--pack-add-border);
+            border-radius: 11px;
+            text-align: center;
+            box-shadow: none;
+            cursor: pointer;
+            box-sizing: border-box;
             transition: border-color .18s, background-color .18s, transform .1s;
         }
         .pack-add-tile:hover { background: var(--success-bg); border-color: var(--primary-color); opacity: 1; }
         .pack-add-icon {
-            width: 48px; height: 48px; border-radius: 50%; display: flex;
-            align-items: center; justify-content: center; color: var(--primary-color);
-            background: var(--pack-add-icon-bg); border: 1px solid var(--pack-add-icon-border);
+            width: clamp(32px, 20cqi, 42px);
+            height: clamp(32px, 20cqi, 42px);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary-color);
+            background: var(--pack-add-icon-bg);
+            border: 1px solid var(--pack-add-icon-border);
         }
-        .pack-add-icon svg { width: 25px; height: 25px; }
-        .pack-add-title { color: var(--text-color); font-size: 1rem; font-weight: 700; }
-        .pack-add-description { color: var(--secondary-color); font-size: .82rem; font-weight: 400; }
+        .pack-add-icon svg { width: 55%; height: 55%; }
+        .pack-add-title { color: var(--text-color); font-size: clamp(0.7rem, 6cqi, 0.88rem); font-weight: 700; }
+        .pack-add-description { color: var(--secondary-color); font-size: clamp(0.55rem, 4.5cqi, 0.72rem); font-weight: 400; }
         .pack-file-status { margin: .25rem .5rem .5rem; min-height: 1.2em; text-align: left; font-size: .82rem; color: var(--secondary-color); }
         .pack-card {
             background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md);
@@ -691,7 +708,7 @@
             #input-text { height: 180px; min-height: 180px; padding: 1rem; resize: vertical; }
             .text-actions { flex-direction: column; gap: 8px; }
             .file-drop-area { min-height: 220px; padding: 2rem 1rem; }
-            .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; max-height: none; padding: 0; }
+            .pack-grid { grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: .65rem; max-height: none; padding: 0; }
             .pack-add-tile { min-height: 190px; padding: 1rem .65rem; }
             .pack-card-header { padding: .9rem; }
             .pack-card-title { font-size: 1rem; }
@@ -1151,22 +1168,31 @@
             box-shadow: 0 0 0 2px var(--tint);
         }
 
-        /* カラーバリエーション */
-        .q-card.math, .q-card.theme-blue { --accent: #3B82F6; --soft: #EFF6FF; --tint: #DBEAFE; }
-        .q-card.japanese, .q-card.theme-red { --accent: #EF4444; --soft: #FEF2F2; --tint: #FEE2E2; }
-        .q-card.user, .q-card.theme-green { --accent: #10B981; --soft: #ECFDF5; --tint: #D1FAE5; }
+        /* カラーバリエーション（全11色対応） */
+        .q-card.theme-blue, .q-card.math { --accent: #3B82F6; --soft: #EFF6FF; --tint: #DBEAFE; }
+        .q-card.theme-red, .q-card.japanese { --accent: #EF4444; --soft: #FEF2F2; --tint: #FEE2E2; }
         .q-card.theme-yellow { --accent: #F59E0B; --soft: #FFFBEB; --tint: #FEF3C7; }
+        .q-card.theme-green, .q-card.user { --accent: #10B981; --soft: #ECFDF5; --tint: #D1FAE5; }
         .q-card.theme-purple { --accent: #8B5CF6; --soft: #F5F3FF; --tint: #EDE9FE; }
+        .q-card.theme-orange { --accent: #F97316; --soft: #FFF7ED; --tint: #FFEDD5; }
+        .q-card.theme-cyan { --accent: #06B6D4; --soft: #ECFEFF; --tint: #CFFAFE; }
+        .q-card.theme-light-gray { --accent: #6B7280; --soft: #F9FAFB; --tint: #E5E7EB; }
+        .q-card.theme-dark-gray { --accent: #374151; --soft: #F3F4F6; --tint: #D1D5DB; }
+        .q-card.theme-navy { --accent: #1E3A8A; --soft: #EFF6FF; --tint: #BFDBFE; }
+        .q-card.theme-deep-red { --accent: #991B1B; --soft: #FEF2F2; --tint: #FECACA; }
 
-        /* ダークモード対応 */
-        [data-theme="dark"] .q-card.math,
+        /* ダークモード時のソフト・ティント調整 */
         [data-theme="dark"] .q-card.theme-blue { --soft: #1E293B; --tint: #334155; }
-        [data-theme="dark"] .q-card.japanese,
         [data-theme="dark"] .q-card.theme-red { --soft: #371B1B; --tint: #4C1D1D; }
-        [data-theme="dark"] .q-card.user,
-        [data-theme="dark"] .q-card.theme-green { --soft: #132E22; --tint: #14532D; }
         [data-theme="dark"] .q-card.theme-yellow { --soft: #342410; --tint: #451A03; }
+        [data-theme="dark"] .q-card.theme-green { --soft: #132E22; --tint: #14532D; }
         [data-theme="dark"] .q-card.theme-purple { --soft: #281B3D; --tint: #3B0764; }
+        [data-theme="dark"] .q-card.theme-orange { --soft: #3A1D0B; --tint: #4E2711; }
+        [data-theme="dark"] .q-card.theme-cyan { --soft: #083344; --tint: #155E75; }
+        [data-theme="dark"] .q-card.theme-light-gray { --soft: #1F2937; --tint: #374151; }
+        [data-theme="dark"] .q-card.theme-dark-gray { --soft: #111827; --tint: #1F2937; }
+        [data-theme="dark"] .q-card.theme-navy { --soft: #0F172A; --tint: #1E293B; }
+        [data-theme="dark"] .q-card.theme-deep-red { --soft: #380C0C; --tint: #4C1212; }
 
         .q-card .top {
             position: relative;
@@ -1191,7 +1217,7 @@
             align-items: center;
             min-width: 0;
             max-width: calc(100% - 18px);
-            font-size: clamp(8.5px, 5.4cqi, 10px);
+            font-size: clamp(0.55rem, 5.4cqi, 0.72rem);
             line-height: 1.15;
             font-weight: 850;
             letter-spacing: -.02em;
@@ -1199,7 +1225,7 @@
             background: var(--soft);
             border: 1px solid var(--tint);
             border-radius: 4px;
-            padding: 3px 5px;
+            padding: 0.2em 0.4em;
             overflow-wrap: anywhere;
         }
         .q-card .app-icon {
@@ -1213,7 +1239,7 @@
 
         .q-card .card-title {
             min-width: 0;
-            font-size: clamp(13px, 8.2cqi, 15px);
+            font-size: clamp(0.75rem, 8.2cqi, 1.05rem);
             line-height: 1.12;
             font-weight: 850;
             letter-spacing: -.04em;
@@ -1256,7 +1282,7 @@
             flex-wrap: wrap;
         }
         .q-card .metric-number {
-            font-size: clamp(31px, 19.5cqi, 36px);
+            font-size: clamp(1.8rem, 19.5cqi, 2.5rem);
             line-height: .95;
             font-weight: 900;
             letter-spacing: -.07em;
@@ -1264,7 +1290,7 @@
             color: var(--accent);
         }
         .q-card .metric-unit {
-            font-size: clamp(12px, 7.5cqi, 13.5px);
+            font-size: clamp(0.75rem, 7.5cqi, 0.95rem);
             line-height: 1;
             font-weight: 850;
             letter-spacing: -.04em;
@@ -1299,7 +1325,7 @@
             gap: 3px;
             min-width: 0;
             padding: 4px 8px 7px;
-            font-size: clamp(7.6px, 4.7cqi, 8.5px);
+            font-size: clamp(0.5rem, 4.7cqi, 0.65rem);
             line-height: 1.1;
             font-weight: 850;
             letter-spacing: -.025em;
@@ -1534,17 +1560,7 @@
                             </div>
                         </div>
 
-                        <!-- パネル2: テキストファイル -->
-                        <div class="panel" id="panel-file">
-                            <div class="file-drop-area">
-                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
-                                <p>テキストファイル(.txt)をドラッグ＆ドロップ、または</p>
-                                <input accept=".txt" class="file-input-real" type="file"/>
-                                <button class="btn-secondary" type="button">ファイルを選択</button>
-                            </div>
-                        </div>
-
-                        <!-- パネル3: 問題パック (mockup HTML design-2 準拠) -->
+                        <!-- パネル2: 問題パック (mockup HTML design-2 準拠) -->
                         <div class="panel" id="panel-pack">
                             <div class="pack-panel-content">
                                 <div aria-label="問題パック一覧" class="pack-grid">
@@ -1609,7 +1625,7 @@
                             </div>
                         </div>
 
-                        <!-- パネル4: 苦手分析 (🌟新規実装) -->
+                        <!-- パネル3: 苦手分析 (🌟新規実装) -->
                         <div class="panel" id="panel-analysis">
                             <div class="analysis-panel-content">
                                 <div class="analysis-controls">
@@ -1651,7 +1667,7 @@
                             </div>
                         </div>
 
-                        <!-- パネル5: 履歴 -->
+                        <!-- パネル4: 履歴 -->
                         <div class="panel" id="panel-history">
                             <div aria-label="学習履歴" class="history-list">
                                 <article class="history-entry">
@@ -1930,25 +1946,75 @@
     </div>
     <div id="copy-modal" class="modal"><div class="modal-overlay"></div><div class="modal-content"><button class="modal-close-btn">&times;</button><h2>誤答問題リスト</h2><p>以下のテキストをコピーして、次回の学習に活用してください。</p><textarea id="copy-textarea" readonly></textarea></div></div>
     <!-- 問題パック サムネイル設定モーダル -->
+    <!-- 問題パック 設定モーダル（動画出力 & txtインポート共通） -->
     <div id="pack-thumbnail-modal" class="modal">
         <div class="modal-overlay"></div>
         <div class="modal-content thumbnail-modal-content">
             <button class="modal-close-btn">&times;</button>
-            <h2>問題パックの出力設定</h2>
-            <p class="modal-subtitle">動画の先頭フレームに埋め込むカバー画像（サムネイル）を設定します。</p>
+            <h2 id="pack-modal-title-text">問題パックの設定</h2>
+            <p class="modal-subtitle" id="pack-modal-subtitle-text">カード情報および動画カバー画像を設定します。</p>
 
             <div class="thumbnail-modal-body">
-                <!-- リアルタイムプレビュー (mockup HTML design-2 を完全再現) -->
+                <!-- 左列: 設定フォーム -->
+                <div class="form-column">
+                    <div class="form-group">
+                        <label for="thumbnail-title-input">パックのタイトル</label>
+                        <input type="text" id="thumbnail-title-input" class="text-input modal-input" placeholder="例: 高校数学公式集" maxlength="30">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="thumbnail-subject-select">教科</label>
+                        <select id="thumbnail-subject-select" class="text-input modal-input" style="cursor: pointer;">
+                            <option value="古典">古典</option>
+                            <option value="漢文">漢文</option>
+                            <option value="現代文">現代文</option>
+                            <option value="数学" selected>数学</option>
+                            <option value="物理">物理</option>
+                            <option value="生物">生物</option>
+                            <option value="化学">化学</option>
+                            <option value="公共">公共</option>
+                            <option value="日本史">日本史</option>
+                            <option value="世界史">世界史</option>
+                            <option value="地理">地理</option>
+                            <option value="英語">英語</option>
+                            <option value="他">他（自由記述）</option>
+                        </select>
+                        <input type="text" id="thumbnail-subject-custom" class="text-input modal-input" placeholder="教科名を入力" maxlength="12" style="display: none; margin-top: 0.4rem;">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="thumbnail-theme-select">テーマカラー</label>
+                        <select id="thumbnail-theme-select" class="text-input modal-input" style="cursor: pointer;">
+                            <option value="red">赤 (Red)</option>
+                            <option value="blue" selected>青 (Blue)</option>
+                            <option value="yellow">黄 (Yellow)</option>
+                            <option value="green">緑 (Green)</option>
+                            <option value="purple">紫 (Purple)</option>
+                            <option value="orange">橙 (Orange)</option>
+                            <option value="cyan">水 (Cyan)</option>
+                            <option value="light-gray">ライトグレー (Light Gray)</option>
+                            <option value="dark-gray">ダークグレー (Dark Gray)</option>
+                            <option value="navy">ネイビー (Navy)</option>
+                            <option value="deep-red">ディープレッド (Deep Red)</option>
+                        </select>
+                    </div>
+
+                    <div class="thumbnail-modal-actions">
+                        <button id="confirm-pack-modal-btn" class="btn-primary" type="button">この設定でパックを出力 (MP4)</button>
+                    </div>
+                </div>
+
+                <!-- 右列: リアルタイムプレビュー -->
                 <div class="preview-column">
-                    <label class="preview-label">プレビュー</label>
+                    <label class="preview-label">カードプレビュー</label>
                     <div class="preview-canvas-wrapper">
-                        <article class="q-card preview-card math" id="thumbnail-preview-card">
+                        <article class="q-card preview-card theme-blue" id="thumbnail-preview-card">
                             <div class="top">
                                 <div class="category-row">
-                                    <span class="badge" id="preview-badge">問題パック / 数学</span>
+                                    <span class="badge" id="preview-badge">数学</span>
                                     <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
                                 </div>
-                                <div class="card-title" id="preview-title">高校数学Ⅰ・A<br>頻出公式・定理集</div>
+                                <div class="card-title" id="preview-title">高校数学公式集</div>
                             </div>
                             <div class="metric-row">
                                 <span class="main-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg></span>
@@ -1959,51 +2025,6 @@
                                 <time id="preview-date">2026.10.13</time>
                             </footer>
                         </article>
-                    </div>
-                </div>
-
-                <!-- フォーム設定列 -->
-                <div class="form-column">
-                    <div class="form-group">
-                        <label for="thumbnail-title-input">パックのタイトル</label>
-                        <input type="text" id="thumbnail-title-input" class="text-input modal-input" placeholder="例: 高校数学公式集" maxlength="30">
-                    </div>
-                    <div class="form-group">
-                        <label for="thumbnail-category-input">カテゴリ・タグ</label>
-                        <input type="text" id="thumbnail-category-input" class="text-input modal-input" placeholder="例: 数学 / 公式" maxlength="15">
-                    </div>
-                    <div class="form-group">
-                        <label>テーマカラー</label>
-                        <div class="color-palette-selector">
-                            <label class="color-option">
-                                <input type="radio" name="thumbnail_theme" value="blue" checked>
-                                <span class="color-swatch blue"></span>
-                                <span class="color-name">ブルー</span>
-                            </label>
-                            <label class="color-option">
-                                <input type="radio" name="thumbnail_theme" value="red">
-                                <span class="color-swatch red"></span>
-                                <span class="color-name">レッド</span>
-                            </label>
-                            <label class="color-option">
-                                <input type="radio" name="thumbnail_theme" value="green">
-                                <span class="color-swatch green"></span>
-                                <span class="color-name">グリーン</span>
-                            </label>
-                            <label class="color-option">
-                                <input type="radio" name="thumbnail_theme" value="yellow">
-                                <span class="color-swatch yellow"></span>
-                                <span class="color-name">イエロー</span>
-                            </label>
-                            <label class="color-option">
-                                <input type="radio" name="thumbnail_theme" value="purple">
-                                <span class="color-swatch purple"></span>
-                                <span class="color-name">パープル</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="thumbnail-modal-actions">
-                        <button id="confirm-export-pack-btn" class="btn-primary" type="button">この設定でパックを出力 (MP4)</button>
                     </div>
                 </div>
             </div>
