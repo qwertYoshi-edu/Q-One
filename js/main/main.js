@@ -1,12 +1,16 @@
+// main.js
 import { state } from './state.js';
 import {
     screens, mainScreen, intermediateScreen, toggleIncorrectListBtn, listOverlay, toggleIncorrectListBtnMain,
     listOverlayMain, helpBtn, helpModal, copyIncorrectBtn, copyModal, copyTextarea,
     startBtn, finalCheckBtn, retryIncorrectBtn, retryAllBtn, retryFinalCheckBtn,
     restartCompletelyBtn, endRetryAllBtn, endRestartBtn, fillRateSlider, fillRateValue,
-    homeBtn, interimReviewBtn, interimReviewPanelBtn, packCards, inputModeRadios, inputPanels,settingsBtn, settingsModal, darkModeToggle, fontSizeSlider, fontSizeValue,
-    exportDataBtn, importDataBtn, importDataInput, resetDataBtn, profileBtn, profileModal, profileNameInput, mobileSettingsFab, settingsStack, closeSettingsBtn
+    homeBtn, interimReviewBtn, interimReviewPanelBtn, packCards, inputModeRadios, inputPanels,
+    settingsBtn, settingsModal, darkModeToggle, fontSizeSlider, fontSizeValue,
+    exportDataBtn, importDataBtn, importDataInput, resetDataBtn, profileBtn, profileModal, profileNameInput,
+    mobileSettingsFab, settingsStack, closeSettingsBtn
 } from './dom.js';
+
 import { openProfileModal, saveUsername } from './profile.js';
 import {
     startGame, startNewPass, retryIncorrect, retryAll, restartGame,
@@ -15,8 +19,8 @@ import {
 import { setupModal, switchScreen, showIntermediateResults } from './ui.js';
 import { reconstructProblemString } from './parser.js';
 import { initPackManager } from '../generator/pack-manager.js';
-
-import * as db from './db.js';
+import { initAnalysisModule, renderAnalysisDashboard } from './analysis.js';
+import * as DB from './db.js';
 
 // 中間結果画面の誤答リスト開閉
 if (toggleIncorrectListBtn) {
@@ -116,21 +120,18 @@ inputModeRadios.forEach((radio) => {
     });
 });
 
-
 // ============================================================================
 // プロフィールモーダル管理
 // ============================================================================
 if (profileBtn) {
     profileBtn.addEventListener('click', () => openProfileModal());
 }
-setupModal(profileModal); // 既存の setupModal で×ボタン等を制御
+setupModal(profileModal);
 
-// ユーザー名の変更（フォーカスが外れた時）
 if (profileNameInput) {
     profileNameInput.addEventListener('change', (e) => {
         saveUsername(e.target.value);
     });
-    // Enterキーを押した際にフォーカスを外して保存を確定させる
     profileNameInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             profileNameInput.blur();
@@ -141,23 +142,16 @@ if (profileNameInput) {
 // ============================================================================
 // モバイル版：設定スライドイン（オーバーレイ）の制御
 // ============================================================================
-
-// FABを押して開く
 if (mobileSettingsFab) {
     mobileSettingsFab.addEventListener('click', () => {
         settingsStack.classList.add('is-open');
     });
 }
-
-// 閉じるボタンを押して閉じる
 if (closeSettingsBtn) {
     closeSettingsBtn.addEventListener('click', () => {
         settingsStack.classList.remove('is-open');
     });
 }
-
-// 履歴タブの「もう一度解く」ボタンを押した際も設定を開く
-// ※将来的に動的生成される場合、イベント委譲（Event Delegation）の利用も検討
 document.addEventListener('click', (e) => {
     if (e.target.closest('.history-retry-actions .retry-action')) {
         if (window.innerWidth <= 899) {
@@ -165,27 +159,21 @@ document.addEventListener('click', (e) => {
         }
     }
 });
-
-// テストが開始されたら、裏でこっそり設定シートを閉じておく（ホームに戻った時に閉じているようにする）
 startBtn.addEventListener('click', () => {
     settingsStack.classList.remove('is-open');
-    // startGame(false) は既存のイベントリスナーで実行される
 });
 finalCheckBtn.addEventListener('click', () => {
     settingsStack.classList.remove('is-open');
-    // startGame(true) は既存のイベントリスナーで実行される
 });
 
 // ============================================================================
 // 設定モーダル & データベース管理・データ入出力処理
 // ============================================================================
-
-// 初期化（DBから設定を読み込んで適用）
 async function loadSettings() {
     try {
-        await db.initDB();
-        const themeSetting = await db.get('user_settings', 'theme');
-        const fontSizeSetting = await db.get('user_settings', 'fontSize');
+        await DB.initDB();
+        const themeSetting = await DB.get('user_settings', 'theme');
+        const fontSizeSetting = await DB.get('user_settings', 'fontSize');
 
         const isDark = themeSetting ? themeSetting.value === 'dark' : false;
         darkModeToggle.checked = isDark;
@@ -196,7 +184,7 @@ async function loadSettings() {
         fontSizeValue.textContent = fontSize;
         applyFontSize(fontSize);
     } catch (e) {
-        console.error('設定の読み込みに失敗しました', e);
+        console.error('[Q-One:Error] 設定の読み込みに失敗しました', e);
     }
 }
 
@@ -212,7 +200,6 @@ function applyFontSize(percent) {
     document.documentElement.style.fontSize = `${16 * (percent / 100)}px`;
 }
 
-// 設定モーダル制御
 if (settingsBtn) {
     settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
 }
@@ -221,7 +208,7 @@ setupModal(settingsModal);
 darkModeToggle.addEventListener('change', async (e) => {
     const isDark = e.target.checked;
     applyTheme(isDark);
-    await db.put('user_settings', { key: 'theme', value: isDark ? 'dark' : 'light' });
+    await DB.put('user_settings', { key: 'theme', value: isDark ? 'dark' : 'light' });
 });
 
 fontSizeSlider.addEventListener('input', (e) => {
@@ -232,17 +219,18 @@ fontSizeSlider.addEventListener('input', (e) => {
 
 fontSizeSlider.addEventListener('change', async (e) => {
     const val = parseInt(e.target.value, 10);
-    await db.put('user_settings', { key: 'fontSize', value: val });
+    await DB.put('user_settings', { key: 'fontSize', value: val });
 });
 
 // JSONエクスポート
 exportDataBtn.addEventListener('click', async () => {
     try {
         const data = {
-            packs: await db.getAll('packs'),
-            test_sessions: await db.getAll('test_sessions'),
-            answer_logs: await db.getAll('answer_logs'),
-            user_settings: await db.getAll('user_settings')
+            packs: await DB.getAll('packs'),
+            test_sessions: await DB.getAll('test_sessions'),
+            answer_logs: await DB.getAll('answer_logs'),
+            problem_stats: await DB.getAll('problem_stats'),
+            user_settings: await DB.getAll('user_settings')
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -254,7 +242,7 @@ exportDataBtn.addEventListener('click', async () => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     } catch (err) {
-        console.error(err);
+        console.error('[Q-One:Error] エクスポートエラー:', err);
         alert('エクスポートに失敗しました。');
     }
 });
@@ -270,30 +258,31 @@ importDataInput.addEventListener('change', async (e) => {
         const text = await file.text();
         const data = JSON.parse(text);
         
-        // 簡易バリデーション
         if (typeof data !== 'object' || (!data.user_settings && !data.packs)) {
             throw new Error('サポートされていないデータフォーマットです。');
         }
 
         if (confirm('現在のデータはすべて上書きされます。よろしいですか？')) {
-            await db.clear('packs');
-            await db.clear('test_sessions');
-            await db.clear('answer_logs');
-            await db.clear('user_settings');
+            await DB.clear('packs');
+            await DB.clear('test_sessions');
+            await DB.clear('answer_logs');
+            await DB.clear('problem_stats');
+            await DB.clear('user_settings');
 
-            for (const pack of data.packs || []) await db.put('packs', pack);
-            for (const session of data.test_sessions || []) await db.put('test_sessions', session);
-            for (const log of data.answer_logs || []) await db.put('answer_logs', log);
-            for (const setting of data.user_settings || []) await db.put('user_settings', setting);
+            for (const pack of data.packs || []) await DB.put('packs', pack);
+            for (const session of data.test_sessions || []) await DB.put('test_sessions', session);
+            for (const log of data.answer_logs || []) await DB.put('answer_logs', log);
+            for (const stat of data.problem_stats || []) await DB.put('problem_stats', stat);
+            for (const setting of data.user_settings || []) await DB.put('user_settings', setting);
 
             alert('インポートが完了しました。設定を反映するためページを再読み込みします。');
             location.reload();
         }
     } catch (err) {
-        console.error(err);
+        console.error('[Q-One:Error] インポートエラー:', err);
         alert('インポートに失敗しました: ' + err.message);
     } finally {
-        importDataInput.value = ''; // ファイル選択リセット
+        importDataInput.value = '';
     }
 });
 
@@ -301,24 +290,26 @@ importDataInput.addEventListener('change', async (e) => {
 resetDataBtn.addEventListener('click', async () => {
     if (confirm('【警告】すべてのデータと設定が削除されます。本当に実行しますか？')) {
         try {
-            await db.clear('packs');
-            await db.clear('test_sessions');
-            await db.clear('answer_logs');
-            await db.clear('user_settings');
+            await DB.clear('packs');
+            await DB.clear('test_sessions');
+            await DB.clear('answer_logs');
+            await DB.clear('problem_stats');
+            await DB.clear('user_settings');
             alert('全データをリセットしました。ページを再読み込みします。');
             location.reload();
         } catch (err) {
-            console.error(err);
+            console.error('[Q-One:Error] リセットエラー:', err);
             alert('リセット処理中にエラーが発生しました。');
         }
     }
 });
 
-// アプリ起動時に設定を適用
+// ============================================================================
+// アプリケーション起動
+// ============================================================================
 loadSettings();
-
-// 問題パック生成・読み込み機能の初期化
 initPackManager();
+initAnalysisModule();
 
 // 初期画面の表示
 screens.setup.classList.add('visible');
