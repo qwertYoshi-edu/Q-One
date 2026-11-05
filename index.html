@@ -1267,6 +1267,15 @@
                                     <input id="imp-highest" name="importance" type="radio" value="3-3"/><label for="imp-highest">最重要</label>
                                 </div>
                             </div>
+                            <!-- 出題範囲設定の追加 -->
+                            <div class="setting-item range-setting">
+                                <label>出題範囲 (番号)</label>
+                                <div style="display:flex; align-items:center; gap:0.5rem; justify-content:center;">
+                                    <input type="number" id="range-start" min="1" placeholder="1" class="text-input" style="padding:0.5rem; margin:0; width:100%; text-align:center;">
+                                    <span style="font-weight:bold; color:var(--secondary-color);">〜</span>
+                                    <input type="number" id="range-end" min="1" placeholder="最後" class="text-input" style="padding:0.5rem; margin:0; width:100%; text-align:center;">
+                                </div>
+                            </div>
                             <div class="setting-item">
                                 <label for="fill-rate-slider">穴埋め問題の空欄率: <span id="fill-rate-value">100</span>%</label>
                                 <input id="fill-rate-slider" max="100" min="50" type="range" value="100"/>
