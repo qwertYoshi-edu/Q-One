@@ -3,14 +3,14 @@ import {
     screens, mainScreen, views, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     addToReviewBtn, modeIndicator, postAnswerButtons, nextProblemBtn, retryCurrentProblemBtn,
     selfGradingContainer, selfGradingInfo, selfGradeCorrectBtn, selfGradeIncorrectBtn,
-    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput,
+    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput,　fsrsRatingContainer, fsrsRatingBtns
 } from './dom.js';
 
 // 名前衝突を防ぐため「DB」という大文字の変数名でインポート
 import * as DB from './db.js';
 
 import { parseText } from './parser.js';
-import { escapeHtml, normalizeAnswer } from './utils.js';
+import { escapeHtml, normalizeAnswer, FSRS_RATINGS, calculateNextFSRSState, createInitialFSRSState } from './utils.js';
 import { resetQuestionUI, switchScreen, updateProgress, updateIncorrectListPanel, showIntermediateResults } from './ui.js';
 
 function screenSwitcher(screenName) {
@@ -414,24 +414,37 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
     if (problem.type !== 'check' && !state.isFinalCheckMode) {
         feedbackText.textContent = isCorrect ? '正解！' : `不正解　正しい解答: ${correctAnswerText}`;
         feedbackContainer.className = `visible ${isCorrect ? 'correct' : 'incorrect'}`;
-        if (!state.isRetryingCurrent && !state.isInterimReview) {
-            addToReviewBtn.style.display = 'block';
-            const isInReviewList = state.reviewList.some(p => p.originalString === problem.originalString);
-            addToReviewBtn.disabled = isInReviewList;
-            addToReviewBtn.textContent = isInReviewList ? '追加済み' : '復習リストに追加';
-            addToReviewBtn.onclick = () => {
-                if (!state.reviewList.some(p => p.originalString === problem.originalString)) {
-                    state.reviewList.push(problem);
-                    addToReviewBtn.disabled = true;
-                    addToReviewBtn.textContent = '追加済み';
-                    updateIncorrectListPanel();
-                }
-            };
-        }
         actionBtn.classList.remove('visible');
-        postAnswerButtons.classList.add('active');
-        nextProblemBtn.onclick = moveToNextProblem;
-        retryCurrentProblemBtn.onclick = retryCurrentProblem;
+
+        if (isCorrect) {
+            // 正解時: 4段階自己評価ボタンを表示
+            postAnswerButtons.classList.remove('active');
+            if (fsrsRatingContainer) {
+                fsrsRatingContainer.classList.add('active');
+                fsrsRatingBtns.forEach(btn => {
+                    btn.onclick = async () => {
+                        const rating = parseInt(btn.dataset.rating, 10);
+                        fsrsRatingContainer.classList.remove('active');
+                        await recordFSRSAnswer(problem, rating, timeMs, true);
+                        moveToNextProblem();
+                    };
+                });
+            }
+        } else {
+            // 不正解時: 自動的に Again (rating: 1) として記録し、解説表示とともに「次へ」ボタンを表示
+            if (fsrsRatingContainer) fsrsRatingContainer.classList.remove('active');
+            recordFSRSAnswer(problem, FSRS_RATINGS.AGAIN, timeMs, false);
+
+            // 仕様書「同じ問題を誤答直後に連続出題しない」: キューの少し後方（3問後または末尾）に再挿入
+            if (!state.isRetryingCurrent && !state.isInterimReview) {
+                const insertIndex = Math.min(state.wordList.length, state.currentIndex + 3);
+                state.wordList.splice(insertIndex, 0, problem);
+            }
+
+            postAnswerButtons.classList.add('active');
+            nextProblemBtn.onclick = moveToNextProblem;
+            retryCurrentProblemBtn.onclick = retryCurrentProblem;
+        }
     } else {
         moveToNextProblem();
     }
@@ -542,5 +555,42 @@ async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
         }
     } catch (err) {
         console.error('[Q-One:Error] DB保存処理中に深刻な例外が発生しました:', err);
+    }
+}
+
+/**
+ * FSRS評価と履歴をIndexedDBへ保存するヘルパー
+ */
+async function recordFSRSAnswer(problem, rating, timeMs, isCorrect) {
+    try {
+        const now = Date.now();
+        const problemKey = `${problem.packId || 'manual_input'}:${problem.questionId || problem.problemId}`;
+
+        // 1. 既存のFSRS状態を取得または新規作成
+        let fsrsState = await DB.get('fsrs_states', problemKey).catch(() => null);
+        if (!fsrsState) {
+            fsrsState = createInitialFSRSState(problemKey, problem.packId, problem.questionId, problem.revision || 1);
+        }
+
+        // 2. 次のFSRS状態を計算して保存
+        const updatedFSRS = calculateNextFSRSState(fsrsState, rating, now);
+        await DB.put('fsrs_states', updatedFSRS);
+
+        // 3. 回答ログを保存
+        await DB.add('answer_logs', {
+            id: `${state.currentSessionId}-${now}-${Math.random().toString(36).slice(2, 6)}`,
+            sessionId: state.currentSessionId,
+            packId: problem.packId || 'manual_input',
+            questionId: problem.questionId || problem.problemId,
+            problemKey: problemKey,
+            revision: problem.revision || 1,
+            rating: rating,
+            isCorrect: isCorrect,
+            timeMs: timeMs,
+            timestamp: now
+        });
+        console.log(`[Q-One:FSRS] 保存完了: Rating [${rating}] / 次回復習 [${updatedFSRS.intervalDays}日後]`);
+    } catch (e) {
+        console.error('[Q-One:Error] FSRS状態の保存に失敗:', e);
     }
 }
