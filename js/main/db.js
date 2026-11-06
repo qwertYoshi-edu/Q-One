@@ -1,6 +1,5 @@
-// db.js
 export const DB_NAME = 'QOneDB';
-export const DB_VERSION = 3; // バージョンを上げて強制的に更新を発火させる
+export const DB_VERSION = 4; // FSRS導入に伴いバージョンを4へ引き上げ
 
 let dbInstance = null;
 
@@ -21,6 +20,7 @@ export function initDB() {
                 { name: 'test_sessions', keyPath: 'id' },
                 { name: 'answer_logs', keyPath: 'id' },
                 { name: 'problem_stats', keyPath: 'problemId' },
+                { name: 'fsrs_states', keyPath: 'id' }, // 新規追加: packId + questionId を主キーとする復習状態
                 { name: 'user_settings', keyPath: 'key' }
             ];
 
