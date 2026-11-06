@@ -22,5 +22,7 @@ export const state = {
         blanks: [],
         results: [],
         problem: null
-    }
+    },
+    currentPackId: 'manual_input',
+    selectedPackData: null
 };
