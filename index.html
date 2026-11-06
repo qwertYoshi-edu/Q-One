@@ -1717,7 +1717,10 @@
                             <textarea id="input-text" placeholder="ここに問題リストを貼り付けます。形式は右上の「?」ボタンで確認できます。"></textarea>
                             <div class="text-actions">
                                 <button class="btn-primary" id="export-pack-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.25em;height:1.25em;margin-right:0.5em;vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>問題をパックとして出力</button>
-                                <button class="btn-secondary" id="save-my-problem-btn" type="button" disabled title="準備中">マイ問題に保存</button>
+                                <button class="btn-secondary btn-with-icon" id="save-my-problem-btn" type="button">
+                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:1.2em;height:1.2em;margin-right:0.3em;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                    <span>マイ問題に保存</span>
+                                </button>
                             </div>
                         </div>
 
@@ -1728,7 +1731,7 @@
                                     <button aria-label="新しい問題パックを追加" class="pack-add-tile" id="add-pack-btn" type="button">
                                         <span aria-hidden="true" class="pack-add-icon"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span>
                                         <span class="pack-add-title">新しい問題パック</span>
-                                        <span class="pack-add-description">動画ファイルから読み込み</span>
+                                        <span class="pack-add-description">ファイルから読み込み</span>
                                     </button>
                                     <input accept=".mp4,.mov" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
                                     
