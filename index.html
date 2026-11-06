@@ -1789,8 +1789,7 @@
                             </div>
                         </div>
 
-                        <!-- パネル3: 苦手分析 (🌟新規実装) -->
-                        <!-- パネル3: 苦手分析・学習管理 (仕様書準拠の完全刷新) -->
+                        <!-- パネル3: 苦手分析・学習管理 -->
                         <div class="panel" id="panel-analysis">
                             <div class="analysis-panel-content">
                                 <!-- 絞り込みコントロール -->
@@ -1863,26 +1862,8 @@
 
                         <!-- パネル4: 履歴 -->
                         <div class="panel" id="panel-history">
-                            <div aria-label="学習履歴" class="history-list">
-                                <article class="history-entry">
-                                    <div class="history-entry-main">
-                                        <div class="history-header">
-                                            <span class="history-badge history-date">2026/10/13 18:24</span>
-                                            <span class="history-badge history-pack">問題パック</span>
-                                        </div>
-                                        <div class="history-title-row">
-                                            <h3>古典単語330四択</h3>
-                                            <span class="history-range-badge">範囲: 1～50</span>
-                                        </div>
-                                        <div class="history-stats">
-                                            <span class="history-stat-item">50問中 34問正解</span>
-                                            <span class="history-stat-item highlight">正答率 68%</span>
-                                        </div>
-                                    </div>
-                                    <div class="history-retry-actions" aria-label="リトライ操作">
-                                        <button class="retry-action" type="button"><span aria-hidden="true">↻</span> もう一度解く</button>
-                                    </div>
-                                </article>
+                            <div aria-label="学習履歴" class="history-list" id="history-entry-list">
+                                <!-- JSにより動的生成 -->
                             </div>
                         </div>
                     </div>
