@@ -1,5 +1,4 @@
-// main.js
-import { state } from './state.js';
+mport { state } from './state.js';
 import {
     screens, mainScreen, intermediateScreen, toggleIncorrectListBtn, listOverlay, toggleIncorrectListBtnMain,
     listOverlayMain, helpBtn, helpModal, copyIncorrectBtn, copyModal, copyTextarea,
@@ -20,6 +19,7 @@ import { setupModal, switchScreen, showIntermediateResults } from './ui.js';
 import { reconstructProblemString } from './parser.js';
 import { initPackManager } from '../generator/pack-manager.js';
 import { initAnalysisModule, renderAnalysisDashboard } from './analysis.js';
+import { initHistoryModule } from './history.js';
 import * as DB from './db.js';
 
 // 中間結果画面の誤答リスト開閉
@@ -310,6 +310,7 @@ resetDataBtn.addEventListener('click', async () => {
 loadSettings();
 initPackManager();
 initAnalysisModule();
+initHistoryModule();
 
 // 初期画面の表示
 screens.setup.classList.add('visible');
