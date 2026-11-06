@@ -138,6 +138,18 @@ export function restartGame() {
 export function showNextProblem() {
     state.isRetryingCurrent = false;
     if (state.currentIndex >= state.wordList.length) {
+        // テスト終了時にセッションレコードを更新
+        if (!state.isInterimReview && state.currentSessionId) {
+            DB.get('test_sessions', state.currentSessionId).then(session => {
+                if (session) {
+                    session.completedAt = Date.now();
+                    session.correctCount = state.correctCount;
+                    session.totalTimeMs = Date.now() - session.startedAt;
+                    DB.put('test_sessions', session);
+                }
+            }).catch(e => console.error('[Q-One:Error] セッション更新エラー:', e));
+        }
+
         if (state.isInterimReview) endInterimReview(true);
         else if (state.reviewList.length === 0) screenSwitcher('end');
         else screenSwitcher('intermediate');
