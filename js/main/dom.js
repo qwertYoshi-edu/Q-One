@@ -38,6 +38,9 @@ export const postAnswerButtons = document.getElementById('post-answer-buttons');
 export const nextProblemBtn = document.getElementById('next-problem-btn');
 export const retryCurrentProblemBtn = document.getElementById('retry-current-problem-btn');
 
+export const fsrsRatingContainer = document.getElementById('fsrs-rating-container');
+export const fsrsRatingBtns = document.querySelectorAll('#fsrs-rating-container .btn-fsrs');
+
 export const selfGradingContainer = document.getElementById('self-grading-container');
 export const selfGradingInfo = document.getElementById('self-grading-info');
 export const selfGradeCorrectBtn = document.getElementById('self-grade-correct-btn');
