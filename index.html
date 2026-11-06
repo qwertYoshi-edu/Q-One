@@ -303,13 +303,13 @@
             aspect-ratio: 1 / 1;
             width: 100%;
             height: auto;
-            min-height: unset;
-            padding: 0.8rem 0.5rem;
+            min-height: 0; /* min-heightの上書きを無効化 */
+            padding: 0.6rem 0.4rem;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: .4rem;
+            gap: .3rem;
             color: var(--secondary-color);
             background: var(--pack-add-bg);
             border: 1.5px dashed var(--pack-add-border);
@@ -318,6 +318,7 @@
             box-shadow: none;
             cursor: pointer;
             box-sizing: border-box;
+            overflow: hidden; /* コンテンツのはみ出しで正方形が崩れるのを防止 */
             transition: border-color .18s, background-color .18s, transform .1s;
         }
         .pack-add-tile:hover { background: var(--success-bg); border-color: var(--primary-color); opacity: 1; }
@@ -671,8 +672,13 @@
             #mode-history:checked ~ .input-panels #panel-history { display: block; animation: panel-enter .26s ease both; }
             #input-text { height: clamp(290px, 38vh, 520px); min-height: 290px; resize: none; }
             .file-drop-area { min-height: clamp(360px, 48vh, 620px); }
-            .pack-grid { max-height: clamp(360px, 48vh, 620px); grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1rem; padding: .2rem .35rem .5rem .1rem; }
-            .pack-add-tile { min-height: 210px; }
+            .pack-grid { 
+                max-height: clamp(360px, 48vh, 620px); 
+                grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); 
+                gap: 1rem; 
+                padding: .2rem .35rem .5rem .1rem; 
+            }
+            .pack-add-tile { min-height: 0px; }
             .history-list { max-height: clamp(360px, 48vh, 620px); }
             .settings-stack { grid-column: 2; grid-row: 4; align-self: start; display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
             .settings-wrapper { margin: 0; padding: clamp(1.1rem, 2vw, 1.6rem); }
@@ -708,8 +714,13 @@
             #input-text { height: 180px; min-height: 180px; padding: 1rem; resize: vertical; }
             .text-actions { flex-direction: column; gap: 8px; }
             .file-drop-area { min-height: 220px; padding: 2rem 1rem; }
-            .pack-grid { grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: .65rem; max-height: none; padding: 0; }
-            .pack-add-tile { min-height: 190px; padding: 1rem .65rem; }
+            .pack-grid { 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: .75rem; 
+                max-height: none; 
+                padding: 0; 
+            }
+            .pack-add-tile { min-height: 0; padding: 0.8rem .5rem; }
             .pack-card-header { padding: .9rem; }
             .pack-card-title { font-size: 1rem; }
             .pack-card-body { padding: 1.4rem .6rem; gap: .55rem; }
@@ -739,17 +750,30 @@
                 font-size: 1.1rem; padding: 1.1rem 2rem; width: auto; min-width: 240px;
             }
             
-            /* .settings-stack をフルスクリーンのオーバーレイシートに変更 */
             .settings-stack {
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                background-color: var(--background-color); z-index: 1000;
-                padding: 16px 20px; overflow-y: auto;
-                transform: translateY(100%); opacity: 0;
-                transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s;
-                display: flex; flex-direction: column; justify-content: flex-start;
+                position: fixed; 
+                top: 0; 
+                left: 0; 
+                width: 100vw; 
+                height: 100dvh; /* モバイルブラウザのアドレスバー考慮 */
+                background-color: var(--background-color); 
+                z-index: 2000; /* ヘッダーや他要素より最前面へ */
+                padding: 20px 20px 80px; /* 下部ボタンが切れないよう余白を確保 */
+                box-sizing: border-box;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                transform: translateY(100%); 
+                opacity: 0;
+                visibility: hidden; /* 閉じている時はポインター等を無効化 */
+                transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.25s, visibility 0.35s;
+                display: flex; 
+                flex-direction: column; 
+                justify-content: flex-start;
             }
             .settings-stack.is-open {
-                transform: translateY(0); opacity: 1;
+                transform: translateY(0); 
+                opacity: 1;
+                visibility: visible;
             }
             
             .mobile-settings-header {
@@ -767,8 +791,8 @@
         @keyframes mobile-panel-enter { from { opacity: .5; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
         @media (max-width: 420px) {
-            .pack-grid { grid-template-columns: 1fr 1fr; }
-            .pack-add-tile { min-height: 190px; padding: 1rem .6rem; }
+            .pack-grid { grid-template-columns: repeat(2, 1fr); }
+            .pack-add-tile { min-height: 0; padding: 0.6rem .4rem; }
             .pack-card-body { padding: 1.35rem .65rem; gap: .6rem; }
             .pack-card-count { font-size: 2.6rem; }
             .pack-card-body svg { width: 35px; height: 35px; }
