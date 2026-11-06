@@ -1557,6 +1557,103 @@
         .btn-fsrs-good.is-recommend:hover { background: var(--primary-hover); }
         .btn-fsrs-easy { border-color: #3B82F6; color: #3B82F6; }
         .btn-fsrs-easy:hover { background: #EFF6FF; }
+
+        /* ===== 苦手分析・学習管理ダッシュボード用スタイル ===== */
+        .growth-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0.8rem;
+            margin-bottom: 1.2rem;
+        }
+        .growth-card {
+            background: var(--light-bg);
+            padding: 1rem 0.8rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+        .growth-value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            line-height: 1;
+            margin-bottom: 0.3rem;
+        }
+        .growth-label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--text-color);
+            margin-bottom: 0.2rem;
+        }
+        .growth-sub {
+            font-size: 0.72rem;
+            color: var(--secondary-color);
+        }
+
+        .analytics-subgrid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.2rem;
+        }
+        @media (max-width: 600px) {
+            .analytics-subgrid { grid-template-columns: 1fr; }
+        }
+        .subgrid-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            text-align: left;
+        }
+        .subgrid-title {
+            margin: 0 0 0.8rem;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--secondary-color);
+        }
+
+        /* カレンダー・ヒートマップ (28セル: 7列×4週) */
+        .calendar-heatmap {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+        }
+        .calendar-day-cell {
+            aspect-ratio: 1 / 1;
+            border-radius: 4px;
+            background: var(--light-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--secondary-color);
+            position: relative;
+        }
+        .calendar-day-cell.level-1 { background: #D1FAE5; color: #065F46; }
+        .calendar-day-cell.level-2 { background: #6EE7B7; color: #064E3B; }
+        .calendar-day-cell.level-3 { background: #10B981; color: white; }
+        [data-theme="dark"] .calendar-day-cell.level-1 { background: #064E3B; color: #A7F3D0; }
+        [data-theme="dark"] .calendar-day-cell.level-2 { background: #047857; color: white; }
+        [data-theme="dark"] .calendar-day-cell.level-3 { background: #10B981; color: white; }
+
+        /* 週次推移リスト */
+        .weekly-stats-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .weekly-stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            padding: 0.35rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .weekly-stat-row:last-child { border-bottom: none; }
+        .weekly-stat-rate { font-weight: 700; color: var(--primary-color); }
     </style>
 </head>
 <body>
@@ -1690,42 +1787,72 @@
                         </div>
 
                         <!-- パネル3: 苦手分析 (🌟新規実装) -->
+                        <!-- パネル3: 苦手分析・学習管理 (仕様書準拠の完全刷新) -->
                         <div class="panel" id="panel-analysis">
                             <div class="analysis-panel-content">
+                                <!-- 絞り込みコントロール -->
                                 <div class="analysis-controls">
                                     <div class="analysis-filters">
                                         <div class="filter-item">
-                                            <label for="analysis-pack-select">対象パック:</label>
-                                            <select id="analysis-pack-select" class="analysis-select">
-                                                <option value="all">全パック横断</option>
-                                                <option value="manual_input">テキスト入力履歴</option>
+                                            <label for="analysis-subject-select">教科:</label>
+                                            <select id="analysis-subject-select" class="analysis-select">
+                                                <option value="all">全教科横断</option>
                                             </select>
                                         </div>
                                         <div class="filter-item">
-                                            <label for="analysis-sort-select">ソート順:</label>
-                                            <select id="analysis-sort-select" class="analysis-select">
-                                                <option value="weakness">🚨 苦手度スコア順</option>
-                                                <option value="speed">🐢 解答速度が遅い順</option>
-                                                <option value="recent_mistake">🕒 直近ミス順</option>
+                                            <label for="analysis-pack-select">問題パック:</label>
+                                            <select id="analysis-pack-select" class="analysis-select">
+                                                <option value="all">全パック</option>
                                             </select>
                                         </div>
                                     </div>
                                     <button id="start-weakness-training-btn" class="btn-primary btn-with-icon analysis-train-btn" type="button" disabled>
                                         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                                        <span id="weakness-train-btn-text">表示中の苦手問題で特訓 (0問)</span>
+                                        <span id="weakness-train-btn-text">苦手克服特訓 (0問)</span>
                                     </button>
                                 </div>
 
-                                <div class="analysis-summary-badge-row">
-                                    <span class="stat-pill red"><strong id="summary-danger-count">0</strong> 要復習</span>
-                                    <span class="stat-pill yellow"><strong id="summary-warning-count">0</strong> 迷い気味</span>
-                                    <span class="stat-pill green"><strong id="summary-safe-count">0</strong> 定着</span>
+                                <!-- 4つの主要成長指標カード -->
+                                <div class="growth-stats-grid">
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-mastered-count">0</div>
+                                        <div class="growth-label">苦手克服した問題</div>
+                                        <div class="growth-sub">AgainからGood/Easy達成</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-mature-count">0</div>
+                                        <div class="growth-label">定着した問題</div>
+                                        <div class="growth-sub">復習間隔 7日以上</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-first-accuracy">--%</div>
+                                        <div class="growth-label">初回正答率</div>
+                                        <div class="growth-sub" id="stat-first-total">0問中 0問</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-review-accuracy">--%</div>
+                                        <div class="growth-label">復習正答率</div>
+                                        <div class="growth-sub" id="stat-review-total">0回中 0回</div>
+                                    </div>
                                 </div>
 
+                                <!-- 学習カレンダー & 初回正答率の週次推移 -->
+                                <div class="analytics-subgrid">
+                                    <div class="subgrid-card">
+                                        <h4 class="subgrid-title">学習カレンダー (直近28日間)</h4>
+                                        <div class="calendar-heatmap" id="calendar-heatmap-grid"></div>
+                                    </div>
+                                    <div class="subgrid-card">
+                                        <h4 class="subgrid-title">初回正答率の週次推移</h4>
+                                        <div class="weekly-stats-list" id="weekly-stats-list"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 復習・要対策問題リスト -->
+                                <h4 style="margin: 1.2rem 0 0.6rem; font-size: 1.05rem;">要復習・苦手問題リスト</h4>
                                 <div class="analysis-card-list" id="analysis-problem-list">
                                     <div class="analysis-empty-state">
-                                        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                                        <p>学習データがまだありません。<br>テストを解くとここに苦手分析が表示されます。</p>
+                                        <p>学習データがまだありません。問題を解くと分析が反映されます。</p>
                                     </div>
                                 </div>
                             </div>
@@ -1968,8 +2095,8 @@
                 <h3><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>3つの基本ルール</h3>
                 <ol style="padding-left: 20px; color: var(--secondary-color);">
                     <li><strong>基本の形:</strong> <code>[種類] 問題文 @ 答え</code> で書く</li>
-                    <li><strong>区切り:</strong> 問題の終わりには <code>#</code> を付ける</li>
-                    <li><strong>重要度:</strong> 最後に <code>_3</code> のように付ける (任意)</li>
+                    <li><strong>重要度:</strong> 問題の後に <code>_3</code> のように付ける (任意)</li>
+                    <li><strong>区切り:</strong> 各問題の末尾に <code>#</code> を付ける</li>
                 </ol>
             </div>
             <div class="help-section">
@@ -2031,7 +2158,6 @@
     </div>
     <div id="copy-modal" class="modal"><div class="modal-overlay"></div><div class="modal-content"><button class="modal-close-btn">&times;</button><h2>誤答問題リスト</h2><p>以下のテキストをコピーして、次回の学習に活用してください。</p><textarea id="copy-textarea" readonly></textarea></div></div>
     <!-- 問題パック サムネイル設定モーダル -->
-    <!-- 問題パック 設定モーダル（動画出力 & txtインポート共通） -->
     <div id="pack-thumbnail-modal" class="modal">
         <div class="modal-overlay"></div>
         <div class="modal-content thumbnail-modal-content">
