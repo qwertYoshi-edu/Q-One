@@ -5,13 +5,13 @@ export function parseImportance(text) {
         : { text: text.trim(), importance: 1 };
 }
 
-export function parseText(text) {
+export function parseText(text, defaultPackId = 'manual_input') {
     const rawChunks = text.trim().split('#').map(p => p.trim()).filter(Boolean);
     const validProblems = [];
     let failedCount = 0;
 
-    rawChunks.forEach(chunk => {
-        const parsed = parseProblem(chunk);
+    rawChunks.forEach((chunk, index) => {
+        const parsed = parseProblem(chunk, index, defaultPackId);
         if (parsed) validProblems.push(parsed);
         else failedCount++;
     });
@@ -33,15 +33,21 @@ function generateProblemId(str) {
     return (hash >>> 0).toString(16) + '-' + str.length.toString(16);
 }
 
-export function parseProblem(pStr) {
+export function parseProblem(pStr, index = 0, defaultPackId = 'manual_input') {
     const { text: coreStr, importance } = parseImportance(pStr);
     let m;
     
-    // 追加: problemIdプロパティを付与
+    const hashId = generateProblemId(pStr);
+    const questionId = `q_${index + 1}_${hashId.slice(0, 6)}`;
+    
+    // 仕様書準拠: packId + questionId による一意識別と revision 管理
     const baseProblem = { 
         importance, 
         originalString: pStr,
-        problemId: generateProblemId(pStr) 
+        problemId: hashId,
+        questionId: questionId,
+        packId: defaultPackId,
+        revision: 1
     };
 
     if (m = coreStr.match(/^\[check\](.*?)\@(.*)$/s)) {
