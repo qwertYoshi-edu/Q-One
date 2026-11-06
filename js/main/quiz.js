@@ -18,17 +18,32 @@ function screenSwitcher(screenName) {
 }
 
 export function startGame(isCheckMode = false) {
-    if (modeTextRadio && !modeTextRadio.checked) {
-        alert('現在「テキスト入力」タブのみ対応しています。');
-        return;
-    }
     state.isFinalCheckMode = isCheckMode;
     state.isInterimReview = false;
     state.savedState = null;
     state.isSelfGradingMode = selfGradeCheckbox.checked && !state.isFinalCheckMode;
 
-    const inputText = document.getElementById('input-text').value;
-    const allProblems = parseText(inputText);
+    const modePackRadio = document.getElementById('mode-pack');
+    let allProblems = [];
+
+    // パックタブ選択時：DBのパック問題から出題、テキストタブ時：テキストエリアから出題
+    if (modePackRadio && modePackRadio.checked) {
+        if (!state.selectedPackData || !state.selectedPackData.problems || state.selectedPackData.problems.length === 0) {
+            alert('出題する問題パックを一覧から選択してください。');
+            return;
+        }
+        state.currentPackId = state.selectedPackData.id;
+        allProblems = state.selectedPackData.problems.map((p, idx) => ({
+            ...p,
+            packId: state.selectedPackData.id,
+            questionId: p.questionId || `q_${idx + 1}`
+        }));
+    } else {
+        state.currentPackId = 'manual_input';
+        state.selectedPackData = null;
+        const inputText = document.getElementById('input-text').value;
+        allProblems = parseText(inputText, 'manual_input');
+    }
     
     // --- 範囲指定ロジック ---
     const startVal = rangeStartInput ? rangeStartInput.value : '';
