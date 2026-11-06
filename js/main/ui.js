@@ -3,7 +3,7 @@ import {
     screens, mainScreen, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     progressBar, progressTextEl, importanceDisplay, mistakeCounter, addToReviewBtn,
     modeIndicator, selfGradingContainer, postAnswerButtons, incorrectListMain,
-    interimReviewPanelBtn, interimReviewBtn
+    interimReviewPanelBtn, interimReviewBtn, interimReviewBtn, fsrsRatingContainer
 } from './dom.js';
 import { escapeHtml } from './utils.js';
 import { triggerMeterAnimation, triggerPerfectAnimation } from './animations.js';
@@ -114,6 +114,7 @@ export function resetQuestionUI(views) {
     checkButtonContainer.classList.remove('active');
     selfGradingContainer.classList.remove('active');
     postAnswerButtons.classList.remove('active');
+    if (fsrsRatingContainer) fsrsRatingContainer.classList.remove('active');
     addToReviewBtn.style.display = 'none';
     Object.values(views).forEach(v => v.style.display = 'none');
 }
