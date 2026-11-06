@@ -1,4 +1,4 @@
-mport { state } from './state.js';
+import { state } from './state.js';
 import {
     screens, mainScreen, intermediateScreen, toggleIncorrectListBtn, listOverlay, toggleIncorrectListBtnMain,
     listOverlayMain, helpBtn, helpModal, copyIncorrectBtn, copyModal, copyTextarea,
