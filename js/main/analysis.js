@@ -1,273 +1,311 @@
 // analysis.js
 import * as DB from './db.js';
-import { parseText } from './parser.js';
 import { startNewPass } from './quiz.js';
 import { escapeHtml } from './utils.js';
 
-// DOM要素の参照
+// DOM要素
+const subjectSelect = document.getElementById('analysis-subject-select');
 const packSelect = document.getElementById('analysis-pack-select');
-const sortSelect = document.getElementById('analysis-sort-select');
 const trainBtn = document.getElementById('start-weakness-training-btn');
 const trainBtnText = document.getElementById('weakness-train-btn-text');
 const problemListContainer = document.getElementById('analysis-problem-list');
 
-const summaryDangerCount = document.getElementById('summary-danger-count');
-const summaryWarningCount = document.getElementById('summary-warning-count');
-const summarySafeCount = document.getElementById('summary-safe-count');
+const statMasteredCount = document.getElementById('stat-mastered-count');
+const statMatureCount = document.getElementById('stat-mature-count');
+const statFirstAccuracy = document.getElementById('stat-first-accuracy');
+const statFirstTotal = document.getElementById('stat-first-total');
+const statReviewAccuracy = document.getElementById('stat-review-accuracy');
+const statReviewTotal = document.getElementById('stat-review-total');
 
-// 現在表示・特訓対象となっている問題データ
-let currentAnalysisProblems = [];
+const calendarGrid = document.getElementById('calendar-heatmap-grid');
+const weeklyStatsList = document.getElementById('weekly-stats-list');
 
-/**
- * 苦手度スコアを算出する
- * - 正答率が低いほど高スコア (最大50点)
- * - 連続正解が0ならペナルティ加点 (30点)
- * - 平均解答速度が5秒(5000ms)を超えている場合加点 (最大20点)
- */
-function calculateWeaknessScore(stat) {
-    if (!stat || stat.totalAnswers === 0) return 0;
-    
-    const accuracy = stat.correctAnswers / stat.totalAnswers;
-    const errorScore = (1 - accuracy) * 50;
-    const continuousMistakeScore = stat.continuousCorrects === 0 ? 30 : Math.max(0, 15 - stat.continuousCorrects * 5);
-    const speedScore = Math.min(20, (stat.averageTimeMs / 5000) * 10);
-    
-    return errorScore + continuousMistakeScore + speedScore;
-}
+let currentWeaknessProblems = [];
 
 /**
- * 判定バッジの種別を判定
- * - danger (要復習): 連続正解が0回、または正答率50%未満
- * - warning (迷い気味): 連続正解1〜2回、または平均速度が4.5秒以上
- * - safe (定着): 連続正解3回以上かつ正答率80%以上
- */
-function evaluateProblemStatus(stat) {
-    const accuracy = stat.totalAnswers > 0 ? (stat.correctAnswers / stat.totalAnswers) : 1;
-    
-    if (stat.continuousCorrects === 0 || accuracy < 0.5) {
-        return { type: 'danger', label: '🚨 要復習' };
-    }
-    if (stat.continuousCorrects < 3 || stat.averageTimeMs >= 4500) {
-        return { type: 'warning', label: '🐢 迷い気味' };
-    }
-    return { type: 'safe', label: '✨ 定着' };
-}
-
-/**
- * 分析ダッシュボード全体の更新・描画
+ * ダッシュボードの集計とレンダリング
  */
 export async function renderAnalysisDashboard() {
     try {
-        console.log('[Q-One:Analysis] 苦手分析ダッシュボードの集計を開始');
+        console.log('[Q-One:Analysis] 仕様書準拠の動的集計を開始');
         await DB.initDB();
 
-        // 1. DBから問題統計・ログ・パック一覧を取得
-        const [stats, logs, packs] = await Promise.all([
-            DB.getAll('problem_stats'),
+        const [packs, logs, fsrsStates] = await Promise.all([
+            DB.getAll('packs'),
             DB.getAll('answer_logs'),
-            DB.getAll('packs')
+            DB.getAll('fsrs_states')
         ]);
 
-        // 2. パックセレクタのオプション更新
-        updatePackSelectOptions(packs);
+        updateFilterSelects(packs);
 
-        if (!stats || stats.length === 0) {
+        if (!logs || logs.length === 0) {
             renderEmptyState();
             return;
         }
 
-        // 3. 対象パックによるフィルタリング
+        const selectedSubject = subjectSelect ? subjectSelect.value : 'all';
         const selectedPackId = packSelect ? packSelect.value : 'all';
-        let filteredStats = stats;
+
+        // 1. 対象パックの絞り込み
+        let targetPackIds = new Set((packs || []).map(p => p.id));
+        targetPackIds.add('manual_input');
+
+        if (selectedSubject !== 'all') {
+            const subjectPacks = (packs || []).filter(p => (p.category || '一般') === selectedSubject);
+            targetPackIds = new Set(subjectPacks.map(p => p.id));
+        }
         if (selectedPackId !== 'all') {
-            filteredStats = stats.filter(s => Array.isArray(s.packIds) && s.packIds.includes(selectedPackId));
+            targetPackIds = new Set([selectedPackId]);
         }
 
-        if (filteredStats.length === 0) {
-            renderEmptyState();
-            return;
-        }
+        // 2. ログのフィルタリング
+        const filteredLogs = logs.filter(log => targetPackIds.has(log.packId || 'manual_input'));
 
-        // 4. ソート処理
-        const sortType = sortSelect ? sortSelect.value : 'weakness';
-        filteredStats.sort((a, b) => {
-            if (sortType === 'weakness') {
-                return calculateWeaknessScore(b) - calculateWeaknessScore(a);
-            }
-            if (sortType === 'speed') {
-                return (b.averageTimeMs || 0) - (a.averageTimeMs || 0);
-            }
-            if (sortType === 'recent_mistake') {
-                return (b.lastMistakeAt || 0) - (a.lastMistakeAt || 0);
-            }
-            return 0;
+        // 3. 問題ごとのログを時系列にグループ化
+        const logsByProblem = new Map();
+        filteredLogs.forEach(log => {
+            const key = log.problemKey || log.problemId;
+            if (!logsByProblem.has(key)) logsByProblem.set(key, []);
+            logsByProblem.get(key).push(log);
         });
 
-        // 5. 各問題ごとの直近5回のログをマッピング
-        const logsByProblemId = new Map();
-        logs.forEach(log => {
-            if (!logsByProblemId.has(log.problemId)) {
-                logsByProblemId.set(log.problemId, []);
+        // 4. 初回正答率・復習正答率・苦手克服数の算出
+        let firstCorrect = 0, firstTotal = 0;
+        let reviewCorrect = 0, reviewTotal = 0;
+        let masteredCount = 0;
+        currentWeaknessProblems = [];
+
+        logsByProblem.forEach((pLogs, problemKey) => {
+            pLogs.sort((a, b) => a.timestamp - b.timestamp);
+
+            // 初回回答
+            const firstLog = pLogs[0];
+            firstTotal++;
+            if (firstLog.isCorrect) firstCorrect++;
+
+            // 復習回答
+            for (let i = 1; i < pLogs.length; i++) {
+                reviewTotal++;
+                if (pLogs[i].isCorrect) reviewCorrect++;
             }
-            logsByProblemId.get(log.problemId).push(log);
-        });
 
-        // 6. カウント集計とDOM生成
-        let dangerCount = 0;
-        let warningCount = 0;
-        let safeCount = 0;
+            // 仕様書: 苦手克服の厳密判定
+            // 「過去にAgainとなった問題を1日以上(24時間)後の復習でGoodまたはEasyと評価した場合」
+            let hadAgain = false;
+            let againTime = 0;
+            let isOvercome = false;
 
-        problemListContainer.innerHTML = '';
-        currentAnalysisProblems = [];
-
-        filteredStats.forEach(stat => {
-            const evaluation = evaluateProblemStatus(stat);
-            if (evaluation.type === 'danger') dangerCount++;
-            else if (evaluation.type === 'warning') warningCount++;
-            else if (evaluation.type === 'safe') safeCount++;
-
-            // 直近5回の履歴ドット用
-            const problemLogs = logsByProblemId.get(stat.problemId) || [];
-            problemLogs.sort((a, b) => b.timestamp - a.timestamp);
-            const recent5Logs = problemLogs.slice(0, 5).reverse(); // 古い順に5件並べる
-
-            let dotsHtml = '';
-            for (let i = 0; i < 5; i++) {
-                if (i < recent5Logs.length) {
-                    const isCorrect = recent5Logs[i].isCorrect;
-                    dotsHtml += `<span class="dot ${isCorrect ? 'correct' : 'incorrect'}" title="${isCorrect ? '正解' : '不正解'}"></span>`;
-                } else {
-                    dotsHtml += `<span class="dot" title="記録なし"></span>`;
+            for (const l of pLogs) {
+                if (l.rating === 1 || !l.isCorrect) {
+                    hadAgain = true;
+                    againTime = l.timestamp;
+                } else if (hadAgain && (l.rating === 3 || l.rating === 4)) {
+                    if (l.timestamp - againTime >= 24 * 60 * 60 * 1000) {
+                        isOvercome = true;
+                        break;
+                    }
                 }
             }
+            if (isOvercome) masteredCount++;
 
-            // カード要素の作成
-            const cardEl = document.createElement('div');
-            cardEl.className = 'analysis-problem-card';
-            cardEl.innerHTML = `
-                <div class="analysis-card-main">
-                    <div class="analysis-card-header">
-                        <span class="analysis-badge ${evaluation.type}">${evaluation.label}</span>
-                        <span style="font-size: 0.8rem; color: var(--secondary-color);">正答率: ${Math.round((stat.correctAnswers / stat.totalAnswers) * 100)}% (${stat.correctAnswers}/${stat.totalAnswers}問)</span>
-                        <span style="font-size: 0.8rem; color: var(--secondary-color);">連続正解: ${stat.continuousCorrects}回</span>
-                    </div>
-                    <div class="analysis-card-q">${escapeHtml(stat.problemText || '問題文不明')}</div>
-                    <div class="analysis-card-ans">正解: ${escapeHtml(stat.problemData?.correctAnswer || stat.problemData?.answers?.join(', ') || '―')}</div>
-                </div>
-                <div class="analysis-card-stats">
-                    <div class="history-dots" title="直近5回の解答推移 (左から順)">
-                        ${dotsHtml}
-                    </div>
-                    <span class="analysis-speed-text">平均 ${(stat.averageTimeMs / 1000).toFixed(1)}秒</span>
-                </div>
-            `;
-            problemListContainer.appendChild(cardEl);
-
-            // 特訓用データとして蓄積
-            if (stat.problemData) {
-                currentAnalysisProblems.push(stat.problemData);
+            // 直近ミスまたは要復習対象の抽出
+            const latestLog = pLogs[pLogs.length - 1];
+            if (latestLog.rating === 1 || !latestLog.isCorrect) {
+                // 特訓用にプール
+                const foundPack = (packs || []).find(p => p.id === latestLog.packId);
+                const prob = foundPack?.problems?.find(pr => (pr.questionId || pr.problemId) === latestLog.questionId);
+                if (prob) currentWeaknessProblems.push(prob);
             }
         });
 
-        // サマリーバッジの反映
-        if (summaryDangerCount) summaryDangerCount.textContent = dangerCount;
-        if (summaryWarningCount) summaryWarningCount.textContent = warningCount;
-        if (summarySafeCount) summarySafeCount.textContent = safeCount;
+        // 5. 定着問題（復習間隔7日以上）の算出
+        const targetFsrs = (fsrsStates || []).filter(fs => targetPackIds.has(fs.packId));
+        const matureCount = targetFsrs.filter(fs => (fs.intervalDays || 0) >= 7).length;
 
-        // 特訓ボタンの制御（要復習・迷い気味の問題、またはリスト全体）
-        if (trainBtn && trainBtnText) {
-            const trainCount = currentAnalysisProblems.length;
-            trainBtnText.textContent = `表示中の苦手問題で特訓 (${trainCount}問)`;
-            trainBtn.disabled = trainCount === 0;
+        // UI反映
+        if (statMasteredCount) statMasteredCount.textContent = masteredCount;
+        if (statMatureCount) statMatureCount.textContent = matureCount;
+
+        if (statFirstAccuracy) {
+            statFirstAccuracy.textContent = firstTotal > 0 ? `${Math.round((firstCorrect / firstTotal) * 100)}%` : '--%';
         }
+        if (statFirstTotal) statFirstTotal.textContent = `${firstTotal}問中 ${firstCorrect}問`;
+
+        if (statReviewAccuracy) {
+            statReviewAccuracy.textContent = reviewTotal > 0 ? `${Math.round((reviewCorrect / reviewTotal) * 100)}%` : '--%';
+        }
+        if (statReviewTotal) statReviewTotal.textContent = `${reviewTotal}回中 ${reviewCorrect}回`;
+
+        // 6. 学習カレンダー（直近28日分）の描画
+        renderCalendarHeatmap(filteredLogs);
+
+        // 7. 週次推移の描画
+        renderWeeklyStats(logsByProblem);
+
+        // 8. 苦手リストの描画
+        renderWeaknessList(currentWeaknessProblems);
 
     } catch (err) {
-        console.error('[Q-One:Error] 苦手分析の読み込みに失敗しました:', err);
+        console.error('[Q-One:Error] ダッシュボード集計エラー:', err);
     }
 }
 
 /**
- * 空状態の描画
+ * 直近28日間の回答カレンダー描画
  */
-function renderEmptyState() {
-    problemListContainer.innerHTML = `
-        <div class="analysis-empty-state">
-            <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-            <p>該当する学習データがまだありません。<br>テストを解くとここに苦手分析が表示されます。</p>
-        </div>
-    `;
-    if (summaryDangerCount) summaryDangerCount.textContent = '0';
-    if (summaryWarningCount) summaryWarningCount.textContent = '0';
-    if (summarySafeCount) summarySafeCount.textContent = '0';
-    if (trainBtn && trainBtnText) {
-        trainBtnText.textContent = '表示中の苦手問題で特訓 (0問)';
-        trainBtn.disabled = true;
-    }
-}
+function renderCalendarHeatmap(logs) {
+    if (!calendarGrid) return;
+    calendarGrid.innerHTML = '';
 
-/**
- * パック選択セレクトボックスの動的更新
- */
-function updatePackSelectOptions(packs) {
-    if (!packSelect) return;
-    const currentVal = packSelect.value;
-    
-    // 既存の動的オプションを一旦クリアして再構築
-    packSelect.innerHTML = `
-        <option value="all">全パック横断</option>
-        <option value="manual_input">テキスト入力履歴</option>
-    `;
-    
-    (packs || []).forEach(pack => {
-        const opt = document.createElement('option');
-        opt.value = pack.id;
-        opt.textContent = pack.title || `パック (${pack.id})`;
-        packSelect.appendChild(opt);
+    const dayCounts = new Map();
+    logs.forEach(log => {
+        const dateKey = new Date(log.timestamp).toISOString().slice(0, 10);
+        dayCounts.set(dateKey, (dayCounts.get(dateKey) || 0) + 1);
     });
 
-    // 以前の選択状態を復元（存在すれば）
-    if ([...packSelect.options].some(o => o.value === currentVal)) {
-        packSelect.value = currentVal;
+    const now = new Date();
+    for (let i = 27; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const count = dayCounts.get(key) || 0;
+
+        let levelClass = '';
+        if (count >= 20) levelClass = 'level-3';
+        else if (count >= 10) levelClass = 'level-2';
+        else if (count >= 1) levelClass = 'level-1';
+
+        const cell = document.createElement('div');
+        cell.className = `calendar-day-cell ${levelClass}`;
+        cell.title = `${key}: ${count}問解答`;
+        cell.textContent = d.getDate();
+        calendarGrid.appendChild(cell);
     }
 }
 
 /**
- * 苦手特訓テストの開始
+ * 初回正答率の週次推移描画 (直近4週)
  */
-function startWeaknessTraining() {
-    if (!currentAnalysisProblems || currentAnalysisProblems.length === 0) {
-        alert('特訓対象の問題がありません。');
+function renderWeeklyStats(logsByProblem) {
+    if (!weeklyStatsList) return;
+    weeklyStatsList.innerHTML = '';
+
+    const now = Date.now();
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+    const weeks = [
+        { label: '今週', start: now - oneWeekMs, end: now, firstTotal: 0, firstCorrect: 0 },
+        { label: '先週', start: now - oneWeekMs * 2, end: now - oneWeekMs, firstTotal: 0, firstCorrect: 0 },
+        { label: '2週前', start: now - oneWeekMs * 3, end: now - oneWeekMs * 2, firstTotal: 0, firstCorrect: 0 },
+        { label: '3週前', start: now - oneWeekMs * 4, end: now - oneWeekMs * 3, firstTotal: 0, firstCorrect: 0 }
+    ];
+
+    logsByProblem.forEach(pLogs => {
+        pLogs.sort((a, b) => a.timestamp - b.timestamp);
+        const first = pLogs[0];
+        const w = weeks.find(wk => first.timestamp >= wk.start && first.timestamp < wk.end);
+        if (w) {
+            w.firstTotal++;
+            if (first.isCorrect) w.firstCorrect++;
+        }
+    });
+
+    weeks.forEach(w => {
+        const rate = w.firstTotal > 0 ? `${Math.round((w.firstCorrect / w.firstTotal) * 100)}%` : '判定保留';
+        const row = document.createElement('div');
+        row.className = 'weekly-stat-row';
+        row.innerHTML = `
+            <span>${w.label} (${w.firstTotal}問)</span>
+            <span class="weekly-stat-rate">${rate}</span>
+        `;
+        weeklyStatsList.appendChild(row);
+    });
+}
+
+function renderWeaknessList(problems) {
+    if (!problemListContainer) return;
+    problemListContainer.innerHTML = '';
+
+    if (problems.length === 0) {
+        problemListContainer.innerHTML = '<div class="analysis-empty-state"><p>🎉 現在、克服が必要な苦手問題はありません！</p></div>';
+        if (trainBtn) trainBtn.disabled = true;
+        if (trainBtnText) trainBtnText.textContent = '苦手克服特訓 (0問)';
         return;
     }
 
-    if (confirm(`表示中の苦手問題（${currentAnalysisProblems.length}問）で特訓を開始しますか？`)) {
-        console.log('[Q-One:Analysis] 苦手特訓テストを起動:', currentAnalysisProblems);
-        // 復習モードフラグをtrueにして出題パスを開始
-        startNewPass(currentAnalysisProblems, true);
+    problems.forEach(prob => {
+        const el = document.createElement('div');
+        el.className = 'analysis-problem-card';
+        el.innerHTML = `
+            <div class="analysis-card-main">
+                <div class="analysis-card-header">
+                    <span class="analysis-badge danger">要復習</span>
+                </div>
+                <div class="analysis-card-q">${escapeHtml(prob.largeText || '問題文')}</div>
+                <div class="analysis-card-ans">正解: ${escapeHtml(prob.correctAnswer || prob.smallText || prob.answers?.join(', ') || '―')}</div>
+            </div>
+        `;
+        problemListContainer.appendChild(el);
+    });
+
+    if (trainBtn) trainBtn.disabled = false;
+    if (trainBtnText) trainBtnText.textContent = `苦手克服特訓 (${problems.length}問)`;
+}
+
+function renderEmptyState() {
+    if (statMasteredCount) statMasteredCount.textContent = '0';
+    if (statMatureCount) statMatureCount.textContent = '0';
+    if (statFirstAccuracy) statFirstAccuracy.textContent = '--%';
+    if (statReviewAccuracy) statReviewAccuracy.textContent = '--%';
+    if (problemListContainer) {
+        problemListContainer.innerHTML = '<div class="analysis-empty-state"><p>学習データがまだありません。問題を解くと分析が反映されます。</p></div>';
     }
 }
 
-/**
- * イベントリスナーの初期化
- */
+function updateFilterSelects(packs) {
+    if (!subjectSelect || !packSelect) return;
+    
+    // 教科一覧の抽出
+    const subjects = new Set(['数学', '現代文', '古典', '漢文', '英語', '物理', '化学', '生物', '日本史', '世界史', '地理', '公共']);
+    (packs || []).forEach(p => { if (p.category) subjects.add(p.category); });
+
+    const currentSub = subjectSelect.value;
+    subjectSelect.innerHTML = '<option value="all">全教科横断</option>';
+    subjects.forEach(sub => {
+        const opt = document.createElement('option');
+        opt.value = sub;
+        opt.textContent = sub;
+        subjectSelect.appendChild(opt);
+    });
+    if ([...subjectSelect.options].some(o => o.value === currentSub)) subjectSelect.value = currentSub;
+
+    // パック一覧
+    const currentPack = packSelect.value;
+    packSelect.innerHTML = '<option value="all">全パック</option><option value="manual_input">テキスト入力履歴</option>';
+    (packs || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.title || p.id;
+        packSelect.appendChild(opt);
+    });
+    if ([...packSelect.options].some(o => o.value === currentPack)) packSelect.value = currentPack;
+}
+
 export function initAnalysisModule() {
-    if (packSelect) {
-        packSelect.addEventListener('change', () => renderAnalysisDashboard());
-    }
-    if (sortSelect) {
-        sortSelect.addEventListener('change', () => renderAnalysisDashboard());
-    }
+    if (subjectSelect) subjectSelect.addEventListener('change', renderAnalysisDashboard);
+    if (packSelect) packSelect.addEventListener('change', renderAnalysisDashboard);
     if (trainBtn) {
-        trainBtn.addEventListener('click', startWeaknessTraining);
+        trainBtn.addEventListener('click', () => {
+            if (currentWeaknessProblems.length > 0) {
+                if (confirm(`抽出された苦手問題（${currentWeaknessProblems.length}問）で特訓を開始しますか？`)) {
+                    startNewPass(currentWeaknessProblems, true);
+                }
+            }
+        });
     }
 
-    // 「苦手分析」タブがクリックされた時に自動リロード
     const analysisRadio = document.getElementById('mode-analysis');
     if (analysisRadio) {
         analysisRadio.addEventListener('change', () => {
-            if (analysisRadio.checked) {
-                renderAnalysisDashboard();
-            }
+            if (analysisRadio.checked) renderAnalysisDashboard();
         });
     }
 }
