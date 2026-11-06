@@ -6,9 +6,11 @@ import { encodeToVideo, decodeFromVideo, extractMetadataAndText, packageWithMeta
 import * as DB from '../main/db.js';
 import { parseText } from '../main/parser.js';
 import { escapeHtml } from '../main/utils.js';
+import { state } from '../main/state.js';
 
 // DOM要素
 const exportPackBtn = document.getElementById('export-pack-btn');
+const saveMyProblemBtn = document.getElementById('save-my-problem-btn');
 const addPackBtn = document.getElementById('add-pack-btn');
 const packFileInput = document.getElementById('pack-file-input');
 const inputText = document.getElementById('input-text');
@@ -41,7 +43,7 @@ const progressCancelBtn = document.getElementById('progress-modal-cancel');
 
 let isProcessCanceled = false;
 let currentTargetProblems = [];
-let currentModalMode = 'export'; // 'export' | 'import_txt'
+let currentModalMode = 'export'; // 'export' | 'import_txt' | 'save_my_pack'
 let pendingImportRawText = '';
 
 // ============================================================================
@@ -106,10 +108,10 @@ thumbnailSubjectSelect.addEventListener('change', () => {
 function openPackModal(mode, initialText = '', initialMeta = null) {
     currentModalMode = mode;
     
-    if (mode === 'export') {
+    if (mode === 'export' || mode === 'save_my_pack') {
         const text = inputText.value.trim();
         if (!text) {
-            alert('出力する問題データが入力されていません。\nテキストエリアに問題を入力してください。');
+            alert('問題データが入力されていません。\nテキストエリアに問題を入力してください。');
             return;
         }
         currentTargetProblems = parseText(text);
@@ -117,9 +119,16 @@ function openPackModal(mode, initialText = '', initialMeta = null) {
             alert('有効な問題形式が見つかりません。形式を確認してください。');
             return;
         }
-        modalTitleText.textContent = '問題パックを出力 (動画化)';
-        modalSubtitleText.textContent = '動画の先頭フレームに埋め込むカバー画像（サムネイル）を設定します。';
-        confirmPackModalBtn.textContent = 'この設定でパックを出力 (MP4)';
+
+        if (mode === 'export') {
+            modalTitleText.textContent = '問題パックを出力';
+            modalSubtitleText.textContent = '動画の先頭フレームに埋め込むサムネイルを設定します。';
+            confirmPackModalBtn.textContent = 'この設定でパックを出力';
+        } else {
+            modalTitleText.textContent = 'マイ問題パックとして保存';
+            modalSubtitleText.textContent = 'カードの外観を設定し、問題パック一覧に追加・保存します。';
+            confirmPackModalBtn.textContent = 'パック一覧に保存';
+        }
         
     } else if (mode === 'import_txt') {
         pendingImportRawText = initialText;
@@ -182,20 +191,26 @@ async function executeModalAction() {
             hideProgressModal();
             alert(`問題パックの出力に失敗しました:\n${err.message || err}`);
         }
-    } else if (currentModalMode === 'import_txt') {
-        // TXTインポートの場合、DBに直接保存
+    } else if (currentModalMode === 'import_txt' || currentModalMode === 'save_my_pack') {
+        // TXTインポートおよび「マイ問題に保存」の場合、DBに直接保存
         try {
             const packId = `pack_${Date.now()}`;
-            // 内部用フォーマット（メタデータ付きテキスト）に変換して保存
-            const packagedText = packageWithMetadata(pendingImportRawText, meta);
+            const targetText = currentModalMode === 'save_my_pack' ? inputText.value.trim() : pendingImportRawText;
+            
+            // packIdを各問題に付与
+            const problemsWithPackId = currentTargetProblems.map((p, idx) => ({
+                ...p,
+                packId: packId,
+                questionId: p.questionId || `q_${idx + 1}`
+            }));
 
             const packRecord = {
                 id: packId,
                 title: meta.title,
                 category: meta.category,
                 themeColor: meta.themeColor,
-                rawText: pendingImportRawText, // DBには純粋なテキストを保持（UI表示用）
-                problems: currentTargetProblems,
+                rawText: targetText,
+                problems: problemsWithPackId,
                 count: meta.count,
                 createdAt: meta.createdAt
             };
@@ -204,14 +219,13 @@ async function executeModalAction() {
             const newCardEl = createPackCardElement(packRecord);
             newCardEl.setAttribute('data-dynamic', 'true');
             packGrid.appendChild(newCardEl);
-            inputText.value = pendingImportRawText;
-            
+
             // 自動選択
             newCardEl.click();
-            alert(`テキスト「${title}」(${count}問) を読み込み、問題パック一覧に追加しました！`);
+            alert(`問題パック「${title}」(${count}問) をマイ問題として保存しました！`);
         } catch (err) {
-            console.error('[Q-One:Error] txt保存エラー:', err);
-            alert(`テキストパックの保存に失敗しました:\n${err.message || err}`);
+            console.error('[Q-One:Error] パック保存エラー:', err);
+            alert(`問題パックの保存に失敗しました:\n${err.message || err}`);
         }
     }
 }
@@ -256,9 +270,10 @@ export function createPackCardElement(pack) {
         article.classList.add('is-selected');
         article.setAttribute('aria-pressed', 'true');
         
-        if (inputText && pack.rawText) {
-            inputText.value = pack.rawText;
-        }
+        // 状態を更新
+        state.selectedPackData = pack;
+        state.currentPackId = pack.id;
+
         const statusEl = document.getElementById('pack-file-status');
         if (statusEl) {
             statusEl.style.display = 'block';
@@ -357,6 +372,7 @@ async function handleImportPack(file) {
 // ============================================================================
 export function initPackManager() {
     if (exportPackBtn) exportPackBtn.addEventListener('click', () => openPackModal('export'));
+    if (saveMyProblemBtn) saveMyProblemBtn.addEventListener('click', () => openPackModal('save_my_pack'));
 
     if (thumbnailModal) {
         const overlay = thumbnailModal.querySelector('.modal-overlay');
