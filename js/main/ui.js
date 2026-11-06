@@ -3,7 +3,7 @@ import {
     screens, mainScreen, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     progressBar, progressTextEl, importanceDisplay, mistakeCounter, addToReviewBtn,
     modeIndicator, selfGradingContainer, postAnswerButtons, incorrectListMain,
-    interimReviewPanelBtn, interimReviewBtn, interimReviewBtn, fsrsRatingContainer
+    interimReviewPanelBtn, interimReviewBtn, fsrsRatingContainer
 } from './dom.js';
 import { escapeHtml } from './utils.js';
 import { triggerMeterAnimation, triggerPerfectAnimation } from './animations.js';
