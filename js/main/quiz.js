@@ -462,12 +462,6 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
             if (fsrsRatingContainer) fsrsRatingContainer.classList.remove('active');
             recordFSRSAnswer(problem, FSRS_RATINGS.AGAIN, timeMs, false);
 
-            // 仕様書「同じ問題を誤答直後に連続出題しない」: キューの少し後方（3問後または末尾）に再挿入
-            if (!state.isRetryingCurrent && !state.isInterimReview) {
-                const insertIndex = Math.min(state.wordList.length, state.currentIndex + 3);
-                state.wordList.splice(insertIndex, 0, problem);
-            }
-
             postAnswerButtons.classList.add('active');
             nextProblemBtn.onclick = moveToNextProblem;
             retryCurrentProblemBtn.onclick = retryCurrentProblem;
