@@ -1,4 +1,3 @@
-// analysis.js
 import * as DB from './db.js';
 import { startNewPass } from './quiz.js';
 import { escapeHtml } from './utils.js';
@@ -46,7 +45,7 @@ export async function renderAnalysisDashboard() {
         const selectedSubject = subjectSelect ? subjectSelect.value : 'all';
         const selectedPackId = packSelect ? packSelect.value : 'all';
 
-        // 1. 対象パックの絞り込み
+        // 1. 対象パックIDの絞り込み
         let targetPackIds = new Set((packs || []).map(p => p.id));
         targetPackIds.add('manual_input');
 
@@ -69,7 +68,10 @@ export async function renderAnalysisDashboard() {
             logsByProblem.get(key).push(log);
         });
 
-        // 4. 初回正答率・復習正答率・苦手克服数の算出
+        // FSRS状態マップの作成
+        const fsrsMap = new Map((fsrsStates || []).map(f => [f.id, f]));
+
+        // 4. 初回正答率・復習正答率・苦手克服数・苦手リストの算出
         let firstCorrect = 0, firstTotal = 0;
         let reviewCorrect = 0, reviewTotal = 0;
         let masteredCount = 0;
@@ -89,43 +91,7 @@ export async function renderAnalysisDashboard() {
                 if (pLogs[i].isCorrect) reviewCorrect++;
             }
 
-            // 仕様書: 苦手克服の厳密判定
-            // 「過去にAgainとなった問題を1日以上(24時間)後の復習でGoodまたはEasyと評価した場合」
-            let hadAgain = false;
-            let againTime = 0;
-            let isOvercome = false;
-
-            for (const l of pLogs) {
-                if (l.rating === 1 || !l.isCorrect) {
-                    hadAgain = true;
-                    againTime = l.timestamp;
-                } else if (hadAgain && (l.rating === 3 || l.rating === 4)) {
-                    if (l.timestamp - againTime >= 24 * 60 * 60 * 1000) {
-                        isOvercome = true;
-                        break;
-                    }
-                }
-            }
-            if (isOvercome) masteredCount++;
-
-            // FSRS状態のマップを作成（定着度の判定用）
-        const fsrsMap = new Map((fsrsStates || []).map(f => [f.id, f]));
-
-        logsByProblem.forEach((pLogs, problemKey) => {
-            pLogs.sort((a, b) => a.timestamp - b.timestamp);
-
-            // 初回回答
-            const firstLog = pLogs[0];
-            firstTotal++;
-            if (firstLog.isCorrect) firstCorrect++;
-
-            // 復習回答
-            for (let i = 1; i < pLogs.length; i++) {
-                reviewTotal++;
-                if (pLogs[i].isCorrect) reviewCorrect++;
-            }
-
-            // 苦手克服判定
+            // 苦手克服判定（過去にAgainがあり、その後24時間以上経過した復習でGood/Easy達成）
             let hadAgain = false;
             let againTime = 0;
             let isOvercome = false;
@@ -169,7 +135,7 @@ export async function renderAnalysisDashboard() {
                         largeText: `問題 (${problemKey})`,
                         correctAnswer: '履歴から集計中',
                         packId: latestLog.packId || 'manual_input',
-                        questionId: latestLog.questionId
+                        questionId: latestLog.questionId || problemKey
                     };
                 }
 
@@ -263,7 +229,7 @@ function renderWeeklyStats(logsByProblem) {
     const weeks = [
         { label: '今週', start: now - oneWeekMs, end: now, firstTotal: 0, firstCorrect: 0 },
         { label: '先週', start: now - oneWeekMs * 2, end: now - oneWeekMs, firstTotal: 0, firstCorrect: 0 },
-        { label: '2週前', start: now - oneWeekMs * 3, end: now - oneWeekMs * 2, firstTotal: 0, firstCorrect: 0 },
+        { label: '2週前', start: now - oneWeekMs * 3, end: now - oneWeekMs, firstTotal: 0, firstCorrect: 0 },
         { label: '3週前', start: now - oneWeekMs * 4, end: now - oneWeekMs * 3, firstTotal: 0, firstCorrect: 0 }
     ];
 
@@ -289,6 +255,9 @@ function renderWeeklyStats(logsByProblem) {
     });
 }
 
+/**
+ * 苦手・要復習リストの描画
+ */
 function renderWeaknessList(problems) {
     if (!problemListContainer) return;
     problemListContainer.innerHTML = '';
@@ -320,6 +289,9 @@ function renderWeaknessList(problems) {
     if (trainBtnText) trainBtnText.textContent = `苦手克服特訓 (${problems.length}問)`;
 }
 
+/**
+ * 空状態の描画
+ */
 function renderEmptyState() {
     if (statMasteredCount) statMasteredCount.textContent = '0';
     if (statMatureCount) statMatureCount.textContent = '0';
@@ -328,8 +300,13 @@ function renderEmptyState() {
     if (problemListContainer) {
         problemListContainer.innerHTML = '<div class="analysis-empty-state"><p>学習データがまだありません。問題を解くと分析が反映されます。</p></div>';
     }
+    if (trainBtn) trainBtn.disabled = true;
+    if (trainBtnText) trainBtnText.textContent = '苦手克服特訓 (0問)';
 }
 
+/**
+ * セレクトボックスのオプション更新
+ */
 function updateFilterSelects(packs) {
     if (!subjectSelect || !packSelect) return;
     
@@ -347,7 +324,7 @@ function updateFilterSelects(packs) {
     });
     if ([...subjectSelect.options].some(o => o.value === currentSub)) subjectSelect.value = currentSub;
 
-    // パック一覧
+    // パック一覧の抽出
     const currentPack = packSelect.value;
     packSelect.innerHTML = '<option value="all">全パック</option><option value="manual_input">テキスト入力履歴</option>';
     (packs || []).forEach(p => {
@@ -359,6 +336,9 @@ function updateFilterSelects(packs) {
     if ([...packSelect.options].some(o => o.value === currentPack)) packSelect.value = currentPack;
 }
 
+/**
+ * イベントリスナーの初期化
+ */
 export function initAnalysisModule() {
     if (subjectSelect) subjectSelect.addEventListener('change', renderAnalysisDashboard);
     if (packSelect) packSelect.addEventListener('change', renderAnalysisDashboard);
