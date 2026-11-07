@@ -108,13 +108,82 @@ export async function renderAnalysisDashboard() {
             }
             if (isOvercome) masteredCount++;
 
-            // 直近ミスまたは要復習対象の抽出
-            const latestLog = pLogs[pLogs.length - 1];
-            if (latestLog.rating === 1 || !latestLog.isCorrect) {
-                // 特訓用にプール
-                const foundPack = (packs || []).find(p => p.id === latestLog.packId);
-                const prob = foundPack?.problems?.find(pr => (pr.questionId || pr.problemId) === latestLog.questionId);
-                if (prob) currentWeaknessProblems.push(prob);
+            // FSRS状態のマップを作成（定着度の判定用）
+        const fsrsMap = new Map((fsrsStates || []).map(f => [f.id, f]));
+
+        logsByProblem.forEach((pLogs, problemKey) => {
+            pLogs.sort((a, b) => a.timestamp - b.timestamp);
+
+            // 初回回答
+            const firstLog = pLogs[0];
+            firstTotal++;
+            if (firstLog.isCorrect) firstCorrect++;
+
+            // 復習回答
+            for (let i = 1; i < pLogs.length; i++) {
+                reviewTotal++;
+                if (pLogs[i].isCorrect) reviewCorrect++;
+            }
+
+            // 苦手克服判定
+            let hadAgain = false;
+            let againTime = 0;
+            let isOvercome = false;
+
+            for (const l of pLogs) {
+                if (l.rating === 1 || !l.isCorrect) {
+                    hadAgain = true;
+                    againTime = l.timestamp;
+                } else if (hadAgain && (l.rating === 3 || l.rating === 4)) {
+                    if (l.timestamp - againTime >= 24 * 60 * 60 * 1000) {
+                        isOvercome = true;
+                        break;
+                    }
+                }
+            }
+            if (isOvercome) masteredCount++;
+
+            // ===== 緩和された要復習・苦手問題の判定ロジック =====
+            // 条件1: 直近3回の回答の中に1度でも Again(または不正解) がある
+            const recentLogs = pLogs.slice(-3);
+            const hasRecentMistake = recentLogs.some(l => l.rating === 1 || !l.isCorrect);
+
+            // 条件2: 通算正答率が 80% 未満
+            const problemCorrectCount = pLogs.filter(l => l.isCorrect).length;
+            const accuracy = pLogs.length > 0 ? (problemCorrectCount / pLogs.length) : 0;
+            const isLowAccuracy = accuracy < 0.8;
+
+            // 条件3: 過去に間違えたことがあり、かつ復習間隔が3日未満（まだ十分に定着していない）
+            const fsrs = fsrsMap.get(problemKey);
+            const isImmature = hadAgain && (!fsrs || (fsrs.intervalDays || 0) < 3);
+
+            // 上記のいずれかに該当すれば「苦手・要復習」と判定
+            if (hasRecentMistake || isLowAccuracy || isImmature) {
+                const latestLog = pLogs[pLogs.length - 1];
+                const foundPack = (packs || []).find(p => p.id === (latestLog.packId || 'manual_input'));
+                let prob = foundPack?.problems?.find(pr => (pr.questionId || pr.problemId) === (latestLog.questionId || latestLog.problemId));
+
+                // パック内に見つからない（テキスト入力履歴など）場合でもログから復元
+                if (!prob) {
+                    prob = {
+                        largeText: `問題 (${problemKey})`,
+                        correctAnswer: '履歴から集計中',
+                        packId: latestLog.packId || 'manual_input',
+                        questionId: latestLog.questionId
+                    };
+                }
+
+                // 苦手理由のタグ付け
+                let reason = '要復習';
+                if (hasRecentMistake) reason = '直近ミス';
+                else if (isLowAccuracy) reason = `正答率${Math.round(accuracy * 100)}%`;
+                else if (isImmature) reason = '未定着';
+
+                currentWeaknessProblems.push({
+                    ...prob,
+                    weaknessReason: reason,
+                    accuracy: Math.round(accuracy * 100)
+                });
             }
         });
 
@@ -237,7 +306,8 @@ function renderWeaknessList(problems) {
         el.innerHTML = `
             <div class="analysis-card-main">
                 <div class="analysis-card-header">
-                    <span class="analysis-badge danger">要復習</span>
+                    <span class="analysis-badge danger">${escapeHtml(prob.weaknessReason || '要復習')}</span>
+                    ${prob.accuracy !== undefined ? `<span style="font-size:0.8rem;color:var(--secondary-color);">正答率: ${prob.accuracy}%</span>` : ''}
                 </div>
                 <div class="analysis-card-q">${escapeHtml(prob.largeText || '問題文')}</div>
                 <div class="analysis-card-ans">正解: ${escapeHtml(prob.correctAnswer || prob.smallText || prob.answers?.join(', ') || '―')}</div>
