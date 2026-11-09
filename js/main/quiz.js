@@ -3,7 +3,7 @@ import {
     screens, mainScreen, views, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     addToReviewBtn, modeIndicator, postAnswerButtons, nextProblemBtn, retryCurrentProblemBtn,
     selfGradingContainer, selfGradingInfo, selfGradeCorrectBtn, selfGradeIncorrectBtn,
-    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput,　fsrsRatingContainer, fsrsRatingBtns
+    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput, fsrsRatingContainer, fsrsRatingBtns
 } from './dom.js';
 
 // 名前衝突を防ぐため「DB」という大文字の変数名でインポート
@@ -17,34 +17,85 @@ function screenSwitcher(screenName) {
     return switchScreen(screenName, showIntermediateResults);
 }
 
+function createId(prefix = 'qone') {
+    const uuid = globalThis.crypto?.randomUUID?.();
+    return `${prefix}_${uuid || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+function getProblemIdentity(problem) {
+    const packId = problem.packId || state.currentPackId || 'manual_input';
+    const questionId = problem.questionId || problem.problemId || 'unknown';
+    return { packId, questionId, problemKey: `${packId}:${questionId}` };
+}
+
+function sameProblem(a, b) {
+    return getProblemIdentity(a).problemKey === getProblemIdentity(b).problemKey;
+}
+
+function validateProblemShape(problem) {
+    if (!problem || typeof problem !== 'object' || Array.isArray(problem) || typeof problem.largeText !== 'string') return false;
+    switch (problem.type) {
+        case 'check':
+            return typeof problem.smallText === 'string';
+        case 'enter':
+            return typeof problem.correctAnswer === 'string' && problem.correctAnswer.length > 0;
+        case 'select':
+            return Array.isArray(problem.options) && problem.options.length >= 2 &&
+                problem.options.every(option => typeof option === 'string' && option.length > 0) &&
+                typeof problem.correctAnswer === 'string' && problem.correctAnswer.length > 0 && problem.options.includes(problem.correctAnswer);
+        case 'fill':
+            return Array.isArray(problem.answers) && problem.answers.length > 0 &&
+                Array.isArray(problem.questionParts) && problem.questionParts.length === problem.answers.length + 1 &&
+                problem.answers.every(answer => typeof answer === 'string' && answer.length > 0) &&
+                problem.questionParts.every(part => typeof part === 'string');
+        default:
+            return false;
+    }
+}
+
 export function startGame(isCheckMode = false) {
     state.isFinalCheckMode = isCheckMode;
     state.isInterimReview = false;
     state.savedState = null;
-    state.isSelfGradingMode = selfGradeCheckbox.checked && !state.isFinalCheckMode;
+    state.isSelfGradingMode = Boolean(selfGradeCheckbox?.checked) && !state.isFinalCheckMode;
 
     const modePackRadio = document.getElementById('mode-pack');
     let allProblems = [];
 
     // パックタブ選択時：DBのパック問題から出題、テキストタブ時：テキストエリアから出題
     if (modePackRadio && modePackRadio.checked) {
-        if (!state.selectedPackData || !state.selectedPackData.problems || state.selectedPackData.problems.length === 0) {
+        if (!state.selectedPackData || !Array.isArray(state.selectedPackData.problems) || state.selectedPackData.problems.length === 0) {
             alert('出題する問題パックを一覧から選択してください。');
             return;
         }
         state.currentPackId = state.selectedPackData.id;
+        if (state.selectedPackData.problems.some(problem => !problem || typeof problem !== 'object' || Array.isArray(problem))) {
+            alert('選択した問題パックに不正な問題データが含まれています。');
+            return;
+        }
         allProblems = state.selectedPackData.problems.map((p, idx) => ({
             ...p,
             packId: state.selectedPackData.id,
-            questionId: p.questionId || `q_${idx + 1}`
+            questionId: p.questionId || p.problemId || `q_${idx + 1}`,
+            importance: Number.isFinite(Number(p.importance)) ? Number(p.importance) : 1
         }));
     } else {
         state.currentPackId = 'manual_input';
         state.selectedPackData = null;
-        const inputText = document.getElementById('input-text').value;
-        allProblems = parseText(inputText, 'manual_input');
+        const textInput = document.getElementById('input-text');
+        if (!textInput) {
+            alert('問題入力欄が見つかりません。ページを再読み込みしてください。');
+            return;
+        }
+        allProblems = parseText(textInput.value, 'manual_input');
     }
     
+    const invalidProblemIndex = allProblems.findIndex(problem => !validateProblemShape(problem));
+    if (invalidProblemIndex >= 0) {
+        alert(`問題 ${invalidProblemIndex + 1} の形式が正しくありません。問題パックまたは入力テキストを確認してください。`);
+        return;
+    }
+
     // --- 範囲指定ロジック ---
     const startVal = rangeStartInput ? rangeStartInput.value : '';
     const endVal = rangeEndInput ? rangeEndInput.value : '';
@@ -62,11 +113,16 @@ export function startGame(isCheckMode = false) {
         }
     }
 
-    const selectedImportance = document.querySelector('input[name="importance"]:checked').value;
+    const importanceRadio = document.querySelector('input[name="importance"]:checked');
+    if (!importanceRadio) {
+        alert('重要度の選択肢が見つかりません。ページを再読み込みしてください。');
+        return;
+    }
+    const selectedImportance = importanceRadio.value;
     const [minImp, maxImp] = selectedImportance.split('-').map(Number);
     let filteredProblems = slicedProblems.filter(p => p.importance >= minImp && p.importance <= maxImp);
     
-    if (document.getElementById('shuffle-checkbox').checked) filteredProblems.sort(() => Math.random() - 0.5);
+    if (document.getElementById('shuffle-checkbox')?.checked) filteredProblems.sort(() => Math.random() - 0.5);
     
     if (filteredProblems.length === 0) {
         alert('選択した範囲・重要度の問題が存在しないか、形式に誤りがあります。');
@@ -74,59 +130,116 @@ export function startGame(isCheckMode = false) {
     }
     
     state.originalWordList = JSON.parse(JSON.stringify(filteredProblems));
-    state.fillBlankRate = parseInt(fillRateSlider.value, 10);
+    state.fillBlankRate = Number.parseInt(fillRateSlider?.value || '100', 10) || 100;
     
-    // 新規セッションIDの生成 (UUIDが無ければランダム文字列)
-    state.currentSessionId = (crypto.randomUUID && crypto.randomUUID()) || Date.now().toString(36);
-    
-    startNewPass(filteredProblems, false);
+    state.currentSessionMode = isCheckMode ? 'final_check' : 'normal';
+    startNewPass(filteredProblems, false, { mode: state.currentSessionMode });
 }
 
-export function startNewPass(problems, isReview) {
-    state.wordList = [...problems];
+export function startNewPass(problems, isReview = false, options = {}) {
+    if (!Array.isArray(problems) || problems.some(problem => !problem || typeof problem !== 'object' || Array.isArray(problem))) {
+        alert('出題データが配列ではないか、不正な要素が含まれています。問題パック・履歴データを確認してください。');
+        return;
+    }
+    const normalizedProblems = problems.map((problem, index) => ({
+        ...problem,
+        packId: problem.packId || state.currentPackId || 'manual_input',
+        questionId: problem.questionId || problem.problemId || `q_${index + 1}`,
+        revision: Number.isInteger(problem.revision) && problem.revision > 0 ? problem.revision : 1,
+        importance: Number.isFinite(Number(problem.importance)) ? Math.min(3, Math.max(1, Number(problem.importance))) : 1
+    }));
+    if (normalizedProblems.length === 0 || normalizedProblems.some(problem => !validateProblemShape(problem))) {
+        alert('出題データが空、または問題形式が不正です。問題パック・履歴データを確認してください。');
+        return;
+    }
+    const identityKeys = normalizedProblems.map(problem => getProblemIdentity(problem).problemKey);
+    if (new Set(identityKeys).size !== identityKeys.length) {
+        alert('同じ問題識別子が重複しています。問題パックの questionId を一意にしてから再度お試しください。');
+        console.error('[Q-One:DataIntegrity] 同一セッション内に重複する問題識別子があります。', identityKeys);
+        return;
+    }
+
+    state.isInterimReview = false;
+    state.savedState = null;
+    state.isRetryingCurrent = false;
+    state.wordList = normalizedProblems;
     state.reviewList = [];
     state.currentIndex = 0;
     state.correctCount = 0;
     state.checkOKCount = 0;
     state.checkReviewCount = 0;
     state.mistakeCount = 0;
-    state.currentPassTotalForRate = state.wordList.filter(p => p.type !== 'check' && !state.isFinalCheckMode).length;
-    state.isCheckOnlyMode = state.wordList.every(p => p.type === 'check');
-    state.isReviewPhase = isReview;
+    state.answerLocked = false;
+    state.pendingAnswer = null;
+    state.isReviewPhase = Boolean(isReview);
+    state.currentSessionMode = options.mode || (state.isFinalCheckMode ? 'final_check' : (isReview ? 'review' : 'normal'));
+    state.isFinalCheckMode = state.currentSessionMode === 'final_check';
+    state.currentPassTotalForRate = state.isFinalCheckMode
+        ? state.wordList.length
+        : state.wordList.filter(problem => problem.type !== 'check').length;
+    state.isCheckOnlyMode = state.wordList.length > 0 && state.wordList.every(problem => problem.type === 'check');
+
+    if (!options.reuseSession || !state.currentSessionId) {
+        state.currentSessionId = createId('session');
+        state.currentSessionStartedAt = Date.now();
+        state.sessionAnswerResults = new Map();
+        state.sessionAnswerCount = 0;
+    }
+
+    const sessionPackIds = [...new Set(state.wordList.map(problem => problem.packId || 'manual_input'))];
+    const session = {
+        id: state.currentSessionId,
+        packId: sessionPackIds.length === 1 ? sessionPackIds[0] : 'multiple',
+        packIds: sessionPackIds,
+        packTitle: options.packTitle || state.selectedPackData?.title || (sessionPackIds[0] === 'manual_input' ? 'テキスト入力' : ''),
+        mode: state.currentSessionMode,
+        range: options.range || `${rangeStartInput ? rangeStartInput.value || '1' : '1'} ~ ${rangeEndInput ? rangeEndInput.value || '最後' : '最後'}`,
+        totalQuestions: state.wordList.length,
+        answeredCount: 0,
+        answerCount: 0,
+        correctCount: 0,
+        accuracy: null,
+        learningAnsweredCount: 0,
+        learningCorrectCount: 0,
+        learningAccuracy: null,
+        checkAnsweredCount: 0,
+        checkCorrectCount: 0,
+        checkAccuracy: null,
+        totalTimeMs: 0,
+        startedAt: state.currentSessionStartedAt || Date.now(),
+        completedAt: null,
+        problemSnapshot: JSON.parse(JSON.stringify(state.wordList)),
+        snapshotVersion: 1,
+        isSelfGradingMode: Boolean(state.isSelfGradingMode)
+    };
 
     let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
+    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
+    else if (state.currentSessionMode === 'retry_all' || state.currentSessionMode === 'history_retry') modeTitle = '再挑戦';
     if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
-    modeIndicator.textContent = modeTitle;
+    if (modeIndicator) modeIndicator.textContent = modeTitle;
 
     updateIncorrectListPanel();
     screenSwitcher('main');
-    
-    // テストセッションをDBに記録（UIを止めないようにバックグラウンド実行）
-    if (!isReview) {
-        DB.put('test_sessions', {
-            id: state.currentSessionId,
-            packId: 'manual_input', // 仮
-            mode: state.isFinalCheckMode ? 'final_check' : 'normal',
-            range: `${rangeStartInput ? rangeStartInput.value || '1' : '1'} ~ ${rangeEndInput ? rangeEndInput.value || '最後' : '最後'}`,
-            totalQuestions: state.wordList.length,
-            correctCount: 0,
-            totalTimeMs: 0,
-            startedAt: Date.now(),
-            completedAt: null
-        }).catch(err => console.error('セッション保存エラー:', err));
-    }
+    state.sessionReady = DB.put('test_sessions', session).catch(error => {
+        console.error('[Q-One:Error] セッション保存エラー:', error);
+        alert(`学習セッションを保存できませんでした: ${error.message || error}`);
+        throw error;
+    });
+    // まだ回答がないまま画面遷移しても未処理拒否にしない。保存処理側では同じPromiseをawaitする。
+    state.sessionReady.catch(() => {});
 
     showNextProblem();
 }
 
 export function retryIncorrect() {
     state.isFinalCheckMode = false;
-    if (state.reviewList.length > 0) startNewPass(state.reviewList, true);
+    if (state.reviewList.length > 0) startNewPass(state.reviewList, true, { mode: 'review' });
 }
 
 export function retryAll() {
     state.isFinalCheckMode = false;
-    startNewPass(state.originalWordList, false);
+    startNewPass(state.originalWordList, false, { mode: 'retry_all' });
 }
 
 export function restartGame() {
@@ -135,19 +248,75 @@ export function restartGame() {
     screenSwitcher('setup');
 }
 
+/** 現在の学習セッションを維持したまま、誤答だけを一時的に再出題する。 */
+export function startInterimReview() {
+    if (!state.reviewList?.length || state.isInterimReview) {
+        if (!state.reviewList?.length) alert('復習する問題がありません。');
+        return;
+    }
+    if (!confirm('間違えた問題を一旦復習しますか？')) return;
+
+    mainScreen?.classList.remove('list-open');
+    state.savedState = {
+        wordList: [...state.wordList],
+        currentIndex: state.currentIndex,
+        reviewList: [...state.reviewList]
+    };
+    state.isInterimReview = true;
+    state.wordList = [...state.reviewList].sort(() => Math.random() - 0.5);
+    state.reviewList = [];
+    state.currentIndex = 0;
+    if (modeIndicator) modeIndicator.textContent = '一旦復習モード';
+    updateIncorrectListPanel();
+    showNextProblem();
+}
+
+/** 一時復習後に元の問題位置へ戻し、セッションIDと集計を継続する。 */
+export function endInterimReview(resume = true) {
+    if (!state.isInterimReview || !state.savedState) return;
+
+    state.wordList = state.savedState.wordList;
+    state.currentIndex = state.savedState.currentIndex;
+    state.reviewList = state.savedState.reviewList;
+    state.isInterimReview = false;
+    state.savedState = null;
+
+    let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
+    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
+    if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
+    if (modeIndicator) modeIndicator.textContent = modeTitle;
+    updateIncorrectListPanel();
+    if (resume) showNextProblem();
+}
+
+function setAnswerActionsDisabled(disabled) {
+    fsrsRatingBtns.forEach(button => { button.disabled = Boolean(disabled); });
+    if (nextProblemBtn) nextProblemBtn.disabled = Boolean(disabled);
+    if (retryCurrentProblemBtn) retryCurrentProblemBtn.disabled = Boolean(disabled);
+}
+
+function lockPendingAction(pending) {
+    if (!pending || pending.actionTaken) return false;
+    pending.actionTaken = true;
+    setAnswerActionsDisabled(true);
+    return true;
+}
+
+function unlockPendingAction(pending) {
+    if (state.pendingAnswer !== pending) return;
+    pending.actionTaken = false;
+    setAnswerActionsDisabled(false);
+}
+
 export function showNextProblem() {
+    setAnswerActionsDisabled(false);
     state.isRetryingCurrent = false;
+    state.answerLocked = false;
+    state.pendingAnswer = null;
     if (state.currentIndex >= state.wordList.length) {
-        // テスト終了時にセッションレコードを更新
+        // 学習セッションを完了状態にする。最終回答の保存が終わってから反映する。
         if (!state.isInterimReview && state.currentSessionId) {
-            DB.get('test_sessions', state.currentSessionId).then(session => {
-                if (session) {
-                    session.completedAt = Date.now();
-                    session.correctCount = state.correctCount;
-                    session.totalTimeMs = Date.now() - session.startedAt;
-                    DB.put('test_sessions', session);
-                }
-            }).catch(e => console.error('[Q-One:Error] セッション更新エラー:', e));
+            finalizeCurrentSession().catch(error => console.error('[Q-One:Error] セッション完了処理エラー:', error));
         }
 
         if (state.isInterimReview) endInterimReview(true);
@@ -160,12 +329,25 @@ export function showNextProblem() {
     resetQuestionUI(views);
 
     const problem = state.wordList[state.currentIndex];
+    if (!validateProblemShape(problem)) {
+        const error = new Error(`問題 ${state.currentIndex + 1} のデータ形式が不正です。`);
+        console.error('[Q-One:Quiz] 出題データ検証失敗:', error, problem);
+        alert(`${error.message} 学習を中断し、最初の画面に戻ります。`);
+        screenSwitcher('setup');
+        return;
+    }
     let reviewMark = state.isReviewPhase ? '<span class="review-indicator">復習</span>' : '';
     if (state.isInterimReview) reviewMark = '<span class="review-indicator" style="background-color: var(--warning-color); color: white;">一旦復習</span>';
     const view = views[state.isFinalCheckMode ? 'check' : problem.type];
-    
-    const largeTextContent = view.querySelector('.large-text');
-    largeTextContent.innerHTML = '';
+    const largeTextContent = view?.querySelector('.large-text');
+    if (!view || !largeTextContent) {
+        const error = new Error(`出題ビューまたは .large-text が見つかりません: ${state.isFinalCheckMode ? 'check' : problem.type}`);
+        console.error('[Q-One:Quiz] 出題UI要素が不足しています:', error);
+        alert('出題画面の構成が不完全です。ページを再読み込みしてください。');
+        screenSwitcher('setup');
+        return;
+    }
+    largeTextContent.replaceChildren();
     const textSpan = document.createElement('span');
     textSpan.textContent = problem.largeText;
     largeTextContent.appendChild(textSpan);
@@ -182,7 +364,14 @@ export function showNextProblem() {
             case 'fill': answerHtml = problem.questionParts.map((part, index) => escapeHtml(part) + (index < problem.answers.length ? `<span class="final-check-answer">${escapeHtml(problem.answers[index])}</span>` : '')).join(''); break;
             default: answerHtml = escapeHtml(problem.smallText || '');
         }
-        view.querySelector('.small-text').innerHTML = answerHtml;
+        const smallTextContent = view.querySelector('.small-text');
+        if (!smallTextContent) {
+            console.error('[Q-One:Quiz] 直前チェック用の .small-text がありません。');
+            alert('直前チェック画面の構成が不完全です。ページを再読み込みしてください。');
+            screenSwitcher('setup');
+            return;
+        }
+        smallTextContent.innerHTML = answerHtml;
         setupCheck();
     } else {
         if (view.querySelector('.small-text')) view.querySelector('.small-text').textContent = problem.smallText || '';
@@ -395,7 +584,10 @@ function advanceFillGrading() {
 }
 
 export function retryCurrentProblem() {
+    setAnswerActionsDisabled(false);
     state.isRetryingCurrent = true;
+    state.answerLocked = false;
+    state.pendingAnswer = null;
     feedbackContainer.classList.remove('visible', 'correct', 'incorrect', 'neutral');
     postAnswerButtons.classList.remove('active');
     selfGradingContainer.classList.remove('active');
@@ -407,67 +599,179 @@ export function retryCurrentProblem() {
 }
 
 function handleAnswerFeedback(isCorrect, correctAnswerText) {
-    const timeMs = Date.now() - state.currentQuestionStartTime;
+    if (state.answerLocked) return;
+    state.answerLocked = true;
+
+    const timeMs = Math.max(0, Date.now() - (state.currentQuestionStartTime || Date.now()));
     const problem = state.wordList[state.currentIndex];
-    const isPrimaryTest = !state.isInterimReview && !state.isFinalCheckMode && !state.isRetryingCurrent;
-    
+    if (!problem) {
+        state.answerLocked = false;
+        console.error('[Q-One:Error] 回答対象の問題が見つかりません。', state.currentIndex);
+        return;
+    }
+
     console.log(`[Q-One:Quiz] 回答検知: 解答時間 [${timeMs}]ms / 正誤: [${isCorrect}]`);
 
-    // DBへの記録をバックグラウンドで実行
-    saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest).catch(err => {
-        console.error('[Q-One:Error] saveAnswerToDB 実行中にエラー発生:', err);
-    });
-
-    if (!state.isRetryingCurrent) {
+    if (state.isRetryingCurrent) {
+        // 再挑戦は別ログとして残しつつ、画面上の最新結果をセッション集計へ反映する。
+        const previousResult = state.sessionAnswerResults?.get(getProblemIdentity(problem).problemKey);
+        if (previousResult && previousResult.isCorrect !== Boolean(isCorrect)) {
+            if (problem.type === 'check' && !state.isFinalCheckMode) {
+                if (isCorrect) {
+                    state.checkOKCount++;
+                    state.checkReviewCount = Math.max(0, state.checkReviewCount - 1);
+                } else {
+                    state.checkReviewCount++;
+                    state.checkOKCount = Math.max(0, state.checkOKCount - 1);
+                }
+            } else if (problem.type !== 'check' || state.isFinalCheckMode) {
+                if (isCorrect) {
+                    state.correctCount++;
+                    state.mistakeCount = Math.max(0, state.mistakeCount - 1);
+                    if (state.isInterimReview && state.savedState) {
+                        state.savedState.reviewList = state.savedState.reviewList.filter(item => !sameProblem(item, problem));
+                    } else {
+                        state.reviewList = state.reviewList.filter(item => !sameProblem(item, problem));
+                    }
+                } else {
+                    state.correctCount = Math.max(0, state.correctCount - 1);
+                    state.mistakeCount++;
+                    const targetList = state.isInterimReview && state.savedState
+                        ? state.savedState.reviewList
+                        : state.reviewList;
+                    if (!targetList.some(item => sameProblem(item, problem))) targetList.push(problem);
+                }
+            }
+            updateIncorrectListPanel();
+        }
+    } else {
         if (state.isInterimReview) {
-            if (isCorrect) {
+            if (problem.type === 'check') {
+                if (isCorrect) state.checkOKCount++;
+                else state.checkReviewCount++;
+            } else if (isCorrect) {
                 state.correctCount++;
-                state.mistakeCount--;
-                state.savedState.reviewList = state.savedState.reviewList.filter(p => p.originalString !== problem.originalString);
+            }
+            if (isCorrect) {
+                state.mistakeCount = Math.max(0, state.mistakeCount - 1);
+                state.savedState.reviewList = state.savedState.reviewList.filter(item => !sameProblem(item, problem));
             } else {
-                if (!state.reviewList.some(p => p.originalString === problem.originalString)) state.reviewList.push(problem);
+                if (!state.savedState.reviewList.some(item => sameProblem(item, problem))) {
+                    state.savedState.reviewList.push(problem);
+                }
             }
         } else {
-            if (problem.type === 'check' || state.isFinalCheckMode) isCorrect ? state.checkOKCount++ : state.checkReviewCount++;
-            else if (isCorrect) state.correctCount++;
+            if (state.isFinalCheckMode) {
+                if (isCorrect) state.checkOKCount++;
+                else state.checkReviewCount++;
+                if (isCorrect) state.correctCount++;
+            } else if (problem.type === 'check') {
+                if (isCorrect) state.checkOKCount++;
+                else state.checkReviewCount++;
+            } else if (isCorrect) {
+                state.correctCount++;
+            }
+
             if (!isCorrect) {
-                if (!state.reviewList.some(p => p.originalString === problem.originalString)) state.reviewList.push(problem);
+                if (!state.reviewList.some(item => sameProblem(item, problem))) state.reviewList.push(problem);
                 if (problem.type !== 'check' && !state.isFinalCheckMode) state.mistakeCount++;
             }
             updateIncorrectListPanel();
         }
     }
 
+    state.pendingAnswer = {
+        problem,
+        isCorrect: Boolean(isCorrect),
+        correctAnswerText,
+        timeMs,
+        sessionId: state.currentSessionId,
+        sessionMode: state.currentSessionMode,
+        isFinalCheckMode: state.isFinalCheckMode,
+        isInterimReview: state.isInterimReview,
+        isRetryingCurrent: state.isRetryingCurrent,
+        sessionReady: state.sessionReady,
+        priorSessionResults: new Map(state.sessionAnswerResults || []),
+        priorSessionAnswerCount: Number(state.sessionAnswerCount) || 0,
+        recorded: false,
+        promise: null,
+        actionTaken: false
+    };
+
+    const requiresRating = isCorrect && problem.type !== 'check' && !state.isFinalCheckMode;
     if (problem.type !== 'check' && !state.isFinalCheckMode) {
         feedbackText.textContent = isCorrect ? '正解！' : `不正解　正しい解答: ${correctAnswerText}`;
         feedbackContainer.className = `visible ${isCorrect ? 'correct' : 'incorrect'}`;
         actionBtn.classList.remove('visible');
 
-        if (isCorrect) {
-            // 正解時: 4段階自己評価ボタンを表示
+        if (requiresRating && fsrsRatingContainer && fsrsRatingBtns.length > 0) {
             postAnswerButtons.classList.remove('active');
-            if (fsrsRatingContainer) {
-                fsrsRatingContainer.classList.add('active');
-                fsrsRatingBtns.forEach(btn => {
-                    btn.onclick = async () => {
-                        const rating = parseInt(btn.dataset.rating, 10);
-                        fsrsRatingContainer.classList.remove('active');
-                        await recordFSRSAnswer(problem, rating, timeMs, true);
-                        moveToNextProblem();
-                    };
-                });
-            }
-        } else {
-            // 不正解時: 自動的に Again (rating: 1) として記録し、解説表示とともに「次へ」ボタンを表示
+            fsrsRatingContainer.classList.add('active');
+            fsrsRatingBtns.forEach(btn => {
+                btn.onclick = async () => {
+                    const pending = state.pendingAnswer;
+                    const rating = Number.parseInt(btn.dataset.rating, 10);
+                    if (![1, 2, 3, 4].includes(rating) || !lockPendingAction(pending)) return;
+                    fsrsRatingContainer.classList.remove('active');
+                    try {
+                        await finalizePendingAnswer(rating);
+                        if (state.pendingAnswer === pending) moveToNextProblem();
+                    } catch (error) {
+                        console.error('[Q-One:Error] 解答保存に失敗:', error);
+                        unlockPendingAction(pending);
+                        alert(`解答履歴を保存できませんでした。再度お試しください。\n${error.message || error}`);
+                        fsrsRatingContainer.classList.add('active');
+                    }
+                };
+            });
+        } else if (!isCorrect) {
             if (fsrsRatingContainer) fsrsRatingContainer.classList.remove('active');
-            recordFSRSAnswer(problem, FSRS_RATINGS.AGAIN, timeMs, false);
-
+            finalizePendingAnswer(FSRS_RATINGS.AGAIN).catch(error => {
+                console.error('[Q-One:Error] 解答保存に失敗:', error);
+                feedbackText.textContent = `履歴保存エラー: ${error.message || error}`;
+            });
             postAnswerButtons.classList.add('active');
-            nextProblemBtn.onclick = moveToNextProblem;
-            retryCurrentProblemBtn.onclick = retryCurrentProblem;
+            nextProblemBtn.onclick = async () => {
+                const pending = state.pendingAnswer;
+                if (!lockPendingAction(pending)) return;
+                try {
+                    await finalizePendingAnswer(FSRS_RATINGS.AGAIN);
+                    if (state.pendingAnswer === pending) moveToNextProblem();
+                } catch (error) {
+                    unlockPendingAction(pending);
+                    console.error('[Q-One:Error] 次の問題へ進めません:', error);
+                    alert(`履歴を保存できていないため、次の問題へ進めません。\n${error.message || error}`);
+                }
+            };
+            retryCurrentProblemBtn.onclick = async () => {
+                const pending = state.pendingAnswer;
+                if (!lockPendingAction(pending)) return;
+                try {
+                    await finalizePendingAnswer(FSRS_RATINGS.AGAIN);
+                    if (state.pendingAnswer === pending) retryCurrentProblem();
+                } catch (error) {
+                    unlockPendingAction(pending);
+                    console.error('[Q-One:Error] 問題の再挑戦を開始できません:', error);
+                    alert(`履歴を保存できていないため、再挑戦できません。\n${error.message || error}`);
+                }
+            };
+        } else if (requiresRating) {
+            // FSRS UI が欠落している環境でも、正答を未記録のままにしない。
+            finalizePendingAnswer(FSRS_RATINGS.GOOD).then(moveToNextProblem).catch(error => {
+                console.error('[Q-One:Error] 解答保存に失敗:', error);
+                alert(`解答履歴を保存できませんでした: ${error.message || error}`);
+            });
+        } else if (!requiresRating) {
+            finalizePendingAnswer(null).then(moveToNextProblem).catch(error => {
+                console.error('[Q-One:Error] 解答保存に失敗:', error);
+                alert(`解答履歴を保存できませんでした: ${error.message || error}`);
+            });
         }
     } else {
-        moveToNextProblem();
+        finalizePendingAnswer(null).then(moveToNextProblem).catch(error => {
+            console.error('[Q-One:Error] 解答保存に失敗:', error);
+            alert(`解答履歴を保存できませんでした: ${error.message || error}`);
+        });
     }
     updateProgress();
 }
@@ -477,141 +781,171 @@ function moveToNextProblem() {
     showNextProblem();
 }
 
-export function startInterimReview() {
-    if (state.reviewList.length === 0) {
-        alert('復習する問題がありません。');
-        return;
+async function finalizePendingAnswer(rating) {
+    const pending = state.pendingAnswer;
+    if (!pending) throw new Error('保存対象の回答がありません。');
+    if (pending.recorded) return;
+    if (pending.promise) return pending.promise;
+
+    const savePromise = persistAnswer(pending, rating);
+    pending.promise = savePromise;
+    try {
+        await savePromise;
+        pending.recorded = true;
+    } catch (error) {
+        // 一時的なIndexedDBエラー後に再試行できるよう、失敗Promiseを保持しない。
+        if (pending.promise === savePromise) pending.promise = null;
+        throw error;
     }
-    if (!confirm('間違えた問題を復習しますか？')) return;
-    mainScreen.classList.remove('list-open');
-    state.isInterimReview = true;
-    state.savedState = {
-        wordList: [...state.wordList],
-        currentIndex: state.currentIndex,
-        reviewList: [...state.reviewList]
+}
+
+function getAttemptType(pending) {
+    if (pending.isRetryingCurrent) return 'retry_current';
+    if (pending.isInterimReview) return 'interim_review';
+    if (pending.isFinalCheckMode || pending.sessionMode === 'final_check') return 'final_check';
+    if (pending.sessionMode === 'weakness_training') return 'weakness_training';
+    if (pending.sessionMode === 'review') return 'review';
+    if (pending.sessionMode === 'retry_all' || pending.sessionMode === 'history_retry') return 'retry';
+    return 'initial';
+}
+
+function summarizeSessionResults(results, isFinalCheckMode) {
+    const values = [...results.values()];
+    const learning = isFinalCheckMode ? values : values.filter(result => result.problemType !== 'check');
+    const checks = isFinalCheckMode ? [] : values.filter(result => result.problemType === 'check');
+    const correctCount = values.filter(result => result.isCorrect).length;
+    const learningCorrectCount = learning.filter(result => result.isCorrect).length;
+    const checkCorrectCount = checks.filter(result => result.isCorrect).length;
+    return {
+        answeredCount: values.length,
+        correctCount,
+        accuracy: values.length ? Math.round(correctCount / values.length * 100) : null,
+        learningAnsweredCount: learning.length,
+        learningCorrectCount,
+        learningAccuracy: learning.length ? Math.round(learningCorrectCount / learning.length * 100) : null,
+        checkAnsweredCount: checks.length,
+        checkCorrectCount,
+        checkAccuracy: checks.length ? Math.round(checkCorrectCount / checks.length * 100) : null
     };
-    state.wordList = [...state.reviewList].sort(() => Math.random() - 0.5);
-    state.reviewList = [];
-    state.currentIndex = 0;
-    modeIndicator.textContent = '一旦復習モード';
-    showNextProblem();
 }
 
-export function endInterimReview(resume) {
-    if (!state.isInterimReview) return;
-    state.wordList = state.savedState.wordList;
-    state.currentIndex = state.savedState.currentIndex;
-    state.reviewList = state.savedState.reviewList;
-    state.isInterimReview = false;
-    state.savedState = null;
-    let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
-    if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
-    modeIndicator.textContent = modeTitle;
-    updateIncorrectListPanel();
-    if (resume) showNextProblem();
-}
+async function persistAnswer(pending, rating) {
+    await pending.sessionReady;
+    const { problem, isCorrect, timeMs } = pending;
+    const now = Date.now();
+    const { packId, questionId, problemKey } = getProblemIdentity(problem);
+    const attemptType = getAttemptType(pending);
+    const answerCategory = problem.type === 'check' && !pending.isFinalCheckMode ? 'check_understanding' : 'graded';
+    const shouldUseFSRS = rating !== null && rating !== undefined && problem.type !== 'check' && !pending.isFinalCheckMode;
+    const shouldUpdateStats = attemptType === 'initial' && problem.type !== 'check' && !pending.isFinalCheckMode;
 
-async function saveAnswerToDB(problem, isCorrect, timeMs, isPrimaryTest) {
-    try {
-        const timestamp = Date.now();
-        
-        if (!problem.problemId) {
-            console.warn('[Q-One:Warning] problemId が存在しません。ログ保存に失敗する可能性があります。');
-        }
-
-        // 1. 解答ログの保存
-        await DB.add('answer_logs', {
-            id: `${state.currentSessionId}-${timestamp}-${Math.random().toString(36).slice(2, 6)}`,
-            sessionId: state.currentSessionId,
-            problemId: problem.problemId || 'unknown',
-            isCorrect: isCorrect,
-            timeMs: timeMs,
-            userAnswer: null, 
-            isInterimReview: state.isInterimReview,
-            timestamp: timestamp
-        });
-        console.log(`[Q-One:DB] ログ保存完了 (answer_logs)`);
-
-        // 2. 問題の成績(Stats)の更新 (初回挑戦かつ本番テストの時のみ)
-        if (isPrimaryTest && problem.type !== 'check') {
-            // 対象が存在しない場合のNotFoundErrorを防ぐため catch して null にフォールバック
-            let stats = await DB.get('problem_stats', problem.problemId).catch(() => null);
-            if (!stats) {
-                stats = {
-                    problemId: problem.problemId,
-                    problemText: problem.largeText,
-                    problemData: { ...problem },
-                    packIds: ['manual_input'],
-                    totalAnswers: 0,
-                    correctAnswers: 0,
-                    continuousCorrects: 0,
-                    averageTimeMs: 0,
-                    lastAnsweredAt: 0,
-                    lastMistakeAt: null
-                };
-            } else {
-                stats.problemData = { ...problem };
-            }
-
-            // 移動平均の計算
-            if (stats.totalAnswers > 0) {
-                stats.averageTimeMs = Math.round((stats.averageTimeMs * stats.totalAnswers + timeMs) / (stats.totalAnswers + 1));
-            } else {
-                stats.averageTimeMs = timeMs;
-            }
-
-            stats.totalAnswers++;
-            stats.lastAnsweredAt = timestamp;
-
-            if (isCorrect) {
-                stats.correctAnswers++;
-                stats.continuousCorrects++;
-            } else {
-                stats.continuousCorrects = 0;
-                stats.lastMistakeAt = timestamp;
-            }
-
-            await DB.put('problem_stats', stats);
-            console.log(`[Q-One:DB] 成績表更新完了 (problem_stats)`);
-        }
-    } catch (err) {
-        console.error('[Q-One:Error] DB保存処理中に深刻な例外が発生しました:', err);
+    let nextFSRS = null;
+    if (shouldUseFSRS) {
+        // Version 4 で保存済みの packId:questionId 形式をそのまま引き継ぐ。
+        const previous = await DB.get('fsrs_states', problemKey);
+        const current = previous || createInitialFSRSState(problemKey, packId, questionId, problem.revision || 1);
+        nextFSRS = calculateNextFSRSState(current, rating, now);
+        nextFSRS.packId = packId;
+        nextFSRS.questionId = questionId;
+        nextFSRS.revision = problem.revision || 1;
     }
-}
 
-/**
- * FSRS評価と履歴をIndexedDBへ保存するヘルパー
- */
-async function recordFSRSAnswer(problem, rating, timeMs, isCorrect) {
-    try {
-        const now = Date.now();
-        const problemKey = `${problem.packId || 'manual_input'}:${problem.questionId || problem.problemId}`;
-
-        // 1. 既存のFSRS状態を取得または新規作成
-        let fsrsState = await DB.get('fsrs_states', problemKey).catch(() => null);
-        if (!fsrsState) {
-            fsrsState = createInitialFSRSState(problemKey, problem.packId, problem.questionId, problem.revision || 1);
+    let nextStats = null;
+    if (shouldUpdateStats) {
+        const stats = await DB.get('problem_stats', problemKey);
+        nextStats = stats || {
+            problemId: problemKey,
+            sourceProblemId: problem.problemId || questionId,
+            packId,
+            questionId,
+            problemText: problem.largeText || '',
+            problemData: null,
+            packIds: [],
+            totalAnswers: 0,
+            correctAnswers: 0,
+            continuousCorrects: 0,
+            averageTimeMs: 0,
+            lastAnsweredAt: 0,
+            lastMistakeAt: null
+        };
+        nextStats.packId = packId;
+        nextStats.questionId = questionId;
+        nextStats.sourceProblemId = problem.problemId || questionId;
+        nextStats.problemText = problem.largeText || '';
+        nextStats.problemData = JSON.parse(JSON.stringify(problem));
+        nextStats.packIds = [...new Set([...(nextStats.packIds || []), packId])];
+        const previousCount = Number(nextStats.totalAnswers) || 0;
+        nextStats.averageTimeMs = previousCount > 0
+            ? Math.round(((Number(nextStats.averageTimeMs) || 0) * previousCount + timeMs) / (previousCount + 1))
+            : timeMs;
+        nextStats.totalAnswers = previousCount + 1;
+        nextStats.lastAnsweredAt = now;
+        if (isCorrect) {
+            nextStats.correctAnswers = (Number(nextStats.correctAnswers) || 0) + 1;
+            nextStats.continuousCorrects = (Number(nextStats.continuousCorrects) || 0) + 1;
+        } else {
+            nextStats.continuousCorrects = 0;
+            nextStats.lastMistakeAt = now;
         }
-
-        // 2. 次のFSRS状態を計算して保存
-        const updatedFSRS = calculateNextFSRSState(fsrsState, rating, now);
-        await DB.put('fsrs_states', updatedFSRS);
-
-        // 3. 回答ログを保存
-        await DB.add('answer_logs', {
-            id: `${state.currentSessionId}-${now}-${Math.random().toString(36).slice(2, 6)}`,
-            sessionId: state.currentSessionId,
-            packId: problem.packId || 'manual_input',
-            questionId: problem.questionId || problem.problemId,
-            problemKey: problemKey,
-            revision: problem.revision || 1,
-            rating: rating,
-            isCorrect: isCorrect,
-            timeMs: timeMs,
-            timestamp: now
-        });
-        console.log(`[Q-One:FSRS] 保存完了: Rating [${rating}] / 次回復習 [${updatedFSRS.intervalDays}日後]`);
-    } catch (e) {
-        console.error('[Q-One:Error] FSRS状態の保存に失敗:', e);
     }
+
+    const log = {
+        id: createId('answer'),
+        sessionId: pending.sessionId || null,
+        packId,
+        questionId,
+        problemKey,
+        problemId: problem.problemId || questionId,
+        revision: problem.revision || 1,
+        isCorrect: Boolean(isCorrect),
+        rating: shouldUseFSRS ? rating : null,
+        timeMs,
+        userAnswer: null,
+        mode: pending.sessionMode,
+        attemptType,
+        answerCategory,
+        problemType: problem.type || 'unknown',
+        isInterimReview: pending.isInterimReview,
+        isRetryingCurrent: pending.isRetryingCurrent,
+        timestamp: now
+    };
+
+    const nextResults = new Map(pending.priorSessionResults || []);
+    nextResults.set(problemKey, {
+        isCorrect: Boolean(isCorrect),
+        problemType: problem.type || 'unknown',
+        timestamp: now
+    });
+    const summary = summarizeSessionResults(nextResults, pending.sessionMode === 'final_check');
+    const session = pending.sessionId ? {
+        id: pending.sessionId,
+        ...summary,
+        answerCount: pending.priorSessionAnswerCount + 1,
+        updatedAt: now
+    } : null;
+
+    await DB.commitAnswer({ log, fsrsState: nextFSRS, problemStat: nextStats, session });
+    // 保存完了が別セッション開始後に返ってきても、新しいセッションの状態を上書きしない。
+    if (state.currentSessionId === pending.sessionId) {
+        state.sessionAnswerResults = nextResults;
+        state.sessionAnswerCount = pending.priorSessionAnswerCount + 1;
+    }
+    console.log(`[Q-One:DB] 解答を一括保存: ${problemKey} / ${attemptType} / rating=${log.rating}`);
 }
+
+async function finalizeCurrentSession() {
+    const sessionId = state.currentSessionId;
+    const sessionReady = state.sessionReady;
+    const resultSnapshot = new Map(state.sessionAnswerResults || []);
+    const answerCount = Number(state.sessionAnswerCount) || 0;
+    const sessionMode = state.currentSessionMode;
+    await sessionReady;
+    const session = await DB.get('test_sessions', sessionId);
+    if (!session || session.completedAt) return;
+    session.completedAt = Date.now();
+    session.totalTimeMs = Math.max(0, session.completedAt - (session.startedAt || session.completedAt));
+    Object.assign(session, summarizeSessionResults(resultSnapshot, sessionMode === 'final_check'));
+    session.answerCount = answerCount;
+    await DB.put('test_sessions', session);
+}
+

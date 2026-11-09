@@ -77,7 +77,7 @@ export const modeTextRadio = document.getElementById('mode-text');
 export const addPackBtn = document.getElementById('add-pack-btn');
 export const packFileInput = document.getElementById('pack-file-input');
 export const packFileStatus = document.getElementById('pack-file-status');
-export const packCards = document.querySelectorAll('.pack-card');
+export const packCards = document.querySelectorAll('.pack-grid .q-card');
 export const inputModeRadios = document.querySelectorAll('input[name="input_mode"]');
 export const inputPanels = document.querySelector('.input-panels');
 

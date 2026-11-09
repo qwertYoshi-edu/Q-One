@@ -24,5 +24,13 @@ export const state = {
         problem: null
     },
     currentPackId: 'manual_input',
-    selectedPackData: null
+    selectedPackData: null,
+    currentSessionId: null,
+    currentSessionMode: 'normal',
+    currentSessionStartedAt: null,
+    sessionReady: Promise.resolve(),
+    sessionAnswerResults: new Map(),
+    sessionAnswerCount: 0,
+    answerLocked: false,
+    pendingAnswer: null
 };
