@@ -636,7 +636,6 @@
             border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;
         }
         .profile-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; }
-        .profile-mode-summary { margin: 1rem 0 0; color: var(--secondary-color); font-size: .78rem; line-height: 1.8; }
         .stat-card {
             background: var(--light-bg); padding: 1.5rem 1rem; border-radius: var(--radius-md); text-align: center;
         }
@@ -1734,43 +1733,55 @@
                                         <span class="pack-add-title">新しい問題パック</span>
                                         <span class="pack-add-description">ファイルから読み込み</span>
                                     </button>
-                                    <input accept=".mp4,.mov,.txt,text/plain,video/mp4,video/quicktime" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
+                                    <input accept=".mp4,.mov,.txt,video/mp4,video/quicktime,text/plain" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
                                     
                                     <!-- mockup HTML 完全準拠カード 1 (数学) -->
-                                    <article class="q-card math" tabindex="0" role="button" aria-pressed="false" data-pack-id="math-sample">
+                                    <article class="q-card math" tabindex="0" role="button" aria-pressed="false" data-pack-id="qone_demo_math_v1">
                                         <div class="top">
                                             <div class="category-row">
-                                                <span class="badge">デモ / 数学</span>
+                                                <span class="badge">問題パック / 数学</span>
                                                 <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
                                             </div>
                                             <div class="card-title">高校数学Ⅰ・A<br>頻出公式・定理集</div>
                                         </div>
                                         <div class="metric-row">
                                             <span class="main-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg></span>
-                                            <div class="metric-content"><span class="metric-number">3</span><span class="metric-unit">問</span></div>
+                                            <div class="metric-content"><span class="metric-number">120</span><span class="metric-unit">問</span></div>
                                         </div>
                                         <footer class="footer">
-                                            <span class="status">BUILT-IN DEMO</span>
-                                            <time>3 QUESTIONS</time>
+                                            <span class="status">UNOPENED PACK</span>
+                                            <time>2024.10.25 14:30</time>
                                         </footer>
                                     </article>
 
                                     <!-- mockup HTML 完全準拠カード 2 (国語・進捗あり) -->
-                                    <article class="q-card japanese" tabindex="0" role="button" aria-pressed="false" data-pack-id="japanese-sample">
+                                    <article class="q-card japanese" tabindex="0" role="button" aria-pressed="false" data-pack-id="qone_demo_japanese_v1">
                                         <div class="top">
                                             <div class="category-row">
-                                                <span class="badge">デモ / 古典</span>
+                                                <span class="badge">進捗保存 / 国語</span>
                                                 <span class="app-icon"><svg viewBox="0 0 52 46" fill="none" aria-hidden="true"><path d="M29.745 4.03c6.61-.463 12.345 4.522 12.807 11.133l1.2 17.148a.75.75 0 0 1-1.24.618L24.964 17.677a.75.75 0 0 1 .44-1.314l4.35-.305a2 2 0 0 1 1.452.486l6.846 5.951-.488-6.983a7 7 0 0 0-7.472-6.494l-15.96 1.116a1 1 0 0 0-.928 1.067l.418 5.985.034.36a7 7 0 0 0 7.437 6.135l7.154-.5a2 2 0 0 1 1.452.485l3.345 2.908a.75.75 0 0 1-.44 1.314l-11.162.78c-6.508.456-12.166-4.367-12.782-10.824l-.026-.309-.628-8.978a3 3 0 0 1 2.784-3.202z" fill="currentColor"/></svg></span>
                                             </div>
-                                            <div class="card-title">古典・重要語句<br>学習デモ</div>
+                                            <div class="card-title">現代文・重要語句<br>必須キーワード100</div>
                                         </div>
                                         <div class="metric-row">
-                                            <span class="main-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg></span>
-                                            <div class="metric-content"><span class="metric-number">3</span><span class="metric-unit">問</span></div>
+                                            <div class="donut-wrap">
+                                                <svg viewBox="0 0 36 36" class="donut-chart" aria-hidden="true">
+                                                    <path class="donut-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                                    <path class="donut-fill" stroke-dasharray="45, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                                </svg>
+                                                <span class="donut-txt">45%</span>
+                                            </div>
+                                            <div class="metric-content">
+                                                <div>
+                                                    <div class="progress-label">PROGRESS</div>
+                                                    <div class="progress-value">45 <small>/ 100問</small></div>
+                                                </div>
+                                            </div>
                                         </div>
+                                        <div class="detail"><div class="excerpt">最新: Q.「敷居が高い」の本来の意味として適切な記述を選択せよ。</div></div>
                                         <footer class="footer">
-                                            <span class="status">BUILT-IN DEMO</span>
-                                            <time>3 QUESTIONS</time>
+                                            <span class="status">AUTO SAVED</span>
+                                            <time>2024.10.25 18:05</time>
                                         </footer>
                                     </article>
                                 </div>
@@ -2127,7 +2138,7 @@
                     <div class="stat-label">学習日数</div>
                 </div>
             </div>
-            <p id="stat-mode-breakdown" class="profile-mode-summary" aria-live="polite"></p>
+            <p id="stat-mode-breakdown" class="profile-mode-breakdown" aria-live="polite"></p>
         </div>
     </div>
     <div id="copy-modal" class="modal"><div class="modal-overlay"></div><div class="modal-content"><button class="modal-close-btn">&times;</button><h2>誤答問題リスト</h2><p>以下のテキストをコピーして、次回の学習に活用してください。</p><textarea id="copy-textarea" readonly></textarea></div></div>
