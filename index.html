@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Q-One | 一問一答トレーニング</title>
     
     <link rel="icon" href="./assets/icons/icon-v4-192.png" type="image/png">
@@ -11,7 +11,7 @@
     <meta name="theme-color" content="#ffffff">
     
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mp4-muxer/build/mp4-muxer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.3/dist/mp4box.all.min.js"></script>
 
     <style>
@@ -1514,18 +1514,18 @@
             #intermediate-screen.list-open .list-overlay { display: block; opacity: 1; pointer-events: auto; }
         }
 
-        /* ===== FSRS 4段階自己評価ボタン ===== */
-        #fsrs-rating-container {
+        /* ===== 簡易間隔反復 4段階自己評価ボタン ===== */
+        #review-rating-container {
             display: none;
             gap: 8px;
             width: 100%;
             max-width: 550px;
             margin: 0 auto;
         }
-        #fsrs-rating-container.active {
+        #review-rating-container.active {
             display: flex;
         }
-        .btn-fsrs {
+        .btn-review-rating {
             flex: 1;
             display: flex;
             flex-direction: column;
@@ -1541,12 +1541,12 @@
             transition: all 0.15s ease;
             cursor: pointer;
         }
-        .btn-fsrs .fsrs-desc { font-size: 0.72rem; opacity: 0.8; margin-top: 2px; }
-        .btn-fsrs-again { border-color: var(--danger-color); color: var(--danger-color); }
-        .btn-fsrs-again:hover { background: var(--danger-bg); }
-        .btn-fsrs-hard { border-color: var(--warning-color); color: var(--warning-color); }
-        .btn-fsrs-hard:hover { background: var(--warning-bg); }
-        .btn-fsrs-good.is-recommend {
+        .btn-review-rating .review-rating-desc { font-size: 0.72rem; opacity: 0.8; margin-top: 2px; }
+        .btn-review-rating-again { border-color: var(--danger-color); color: var(--danger-color); }
+        .btn-review-rating-again:hover { background: var(--danger-bg); }
+        .btn-review-rating-hard { border-color: var(--warning-color); color: var(--warning-color); }
+        .btn-review-rating-hard:hover { background: var(--warning-bg); }
+        .btn-review-rating-good.is-recommend {
             background: var(--primary-color);
             color: white;
             border-color: var(--primary-color);
@@ -1554,9 +1554,9 @@
             box-shadow: 0 4px 10px rgba(52, 211, 153, 0.3);
             transform: scale(1.04);
         }
-        .btn-fsrs-good.is-recommend:hover { background: var(--primary-hover); }
-        .btn-fsrs-easy { border-color: #3B82F6; color: #3B82F6; }
-        .btn-fsrs-easy:hover { background: #EFF6FF; }
+        .btn-review-rating-good.is-recommend:hover { background: var(--primary-hover); }
+        .btn-review-rating-easy { border-color: #3B82F6; color: #3B82F6; }
+        .btn-review-rating-easy:hover { background: #EFF6FF; }
 
         /* ===== 苦手分析・学習管理ダッシュボード用スタイル ===== */
         .growth-stats-grid {
@@ -1654,6 +1654,115 @@
         }
         .weekly-stat-row:last-child { border-bottom: none; }
         .weekly-stat-rate { font-weight: 700; color: var(--primary-color); }
+
+        /* ===== 第2段階: 復習カード・レスポンシブ・アクセシビリティ調整 ===== */
+        .review-home-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.25rem;
+            min-width: 0;
+            padding: clamp(1rem, 2.5vw, 1.5rem);
+            margin: 0 0 1.35rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            background: var(--card-bg);
+            box-shadow: 0 8px 28px rgba(15, 23, 42, .045);
+        }
+        .review-home-main { min-width: 0; flex: 1 1 auto; }
+        .review-home-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .6rem 1rem; }
+        .review-home-heading h2 { margin: 0; font-size: 1.2rem; }
+        .review-home-status { color: var(--secondary-color); font-size: .88rem; overflow-wrap: anywhere; }
+        .review-home-counts {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: .6rem;
+            margin-top: .9rem;
+        }
+        .review-home-counts > div {
+            display: flex; flex-direction: column; min-width: 0; gap: .1rem;
+            padding: .55rem .7rem; border-radius: 10px; background: var(--light-bg);
+        }
+        .review-home-counts strong { font-size: clamp(1.25rem, 2.4vw, 1.7rem); line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .review-home-counts span { color: var(--secondary-color); font-size: .78rem; overflow-wrap: anywhere; }
+        .review-home-note { margin: .55rem 0 0; color: var(--secondary-color); font-size: .78rem; line-height: 1.5; }
+        #start-daily-review-btn { flex: 0 0 auto; min-width: 170px; min-height: 48px; }
+        .answer-save-status { display: inline-block; margin-left: .5rem; font-size: .82rem; font-weight: 600; }
+        .retention-breakdown { margin: .5rem 0 1rem; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: 10px; color: var(--secondary-color); line-height: 1.6; overflow-wrap: anywhere; }
+        .analysis-card-evidence { margin-top: .5rem; color: var(--secondary-color); font-size: .84rem; line-height: 1.55; overflow-wrap: anywhere; }
+        .analysis-card-meta { display: flex; flex-wrap: wrap; gap: .35rem .8rem; color: var(--secondary-color); font-size: .8rem; }
+        .sr-only {
+            position: absolute !important; width: 1px !important; height: 1px !important;
+            padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important;
+        }
+        .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+        .pack-grid > *, .pack-grid .q-card, .pack-grid .pack-add-tile { min-width: 0; width: 100%; box-sizing: border-box; }
+        .pack-grid .q-card { overflow: hidden; }
+        .pack-grid .card-title, .pack-grid .pack-card-title { overflow-wrap: anywhere; word-break: normal; }
+        @media (min-width: 645px) {
+            .pack-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+        }
+        @media (min-width: 1120px) {
+            .pack-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+        }
+        @media (min-width: 900px) {
+            #home-screen {
+                grid-template-rows: auto auto auto auto minmax(390px, 1fr);
+                align-content: start;
+            }
+            .review-home-card { grid-column: 1 / -1; grid-row: 3; margin-bottom: 1rem; }
+            .input-nav { grid-column: 1 / -1; grid-row: 4; margin-bottom: 1.1rem; }
+            .input-panels { grid-column: 1; grid-row: 5; min-width: 0; position: relative; min-height: 390px; }
+            .settings-stack { grid-column: 2; grid-row: 5; min-width: 0; }
+        }
+        @media (max-width: 899px) {
+            .review-home-card { flex-direction: column; align-items: stretch; gap: .85rem; margin-bottom: 1.1rem; }
+            #start-daily-review-btn { width: 100%; }
+            .review-home-counts { gap: .45rem; }
+            .review-home-counts > div { padding: .5rem .55rem; }
+        }
+        @media (max-width: 420px) {
+            .pack-grid .q-card, .pack-grid .pack-add-tile { min-height: 0; }
+            .pack-grid .q-card .top { padding: .7rem .6rem; }
+            .pack-grid .q-card .card-title { font-size: .9rem; line-height: 1.35; }
+            .pack-grid .q-card .metric-row { padding: .65rem .55rem; }
+            .pack-grid .q-card .metric-number { font-size: 1.8rem; }
+            .pack-grid .q-card .footer { padding: .6rem .55rem; gap: .3rem; flex-wrap: wrap; }
+            .pack-grid .q-card .footer time { overflow-wrap: anywhere; }
+            .analysis-card-list { grid-template-columns: minmax(0, 1fr); }
+            .review-home-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .modal-content {
+            width: min(92vw, 660px);
+            max-height: min(90dvh, 900px);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: clamp(1.1rem, 4vw, 2rem);
+            padding-bottom: max(clamp(1.1rem, 4vw, 2rem), env(safe-area-inset-bottom));
+        }
+        body.modal-open { overflow: hidden; }
+        .info-screen { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        .info-screen-content { width: min(100%, 860px); margin: 0 auto; padding: clamp(1rem, 4vw, 2rem); }
+        .info-screen-content p, .info-screen-content li { line-height: 1.75; overflow-wrap: anywhere; }
+        .info-screen-content ul { padding-left: 1.4rem; }
+        .info-screen-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+        .info-screen-header h1 { margin: 0; font-size: clamp(1.5rem, 5vw, 2rem); }
+        .info-eyebrow, .info-last-updated { color: var(--secondary-color); font-size: .82rem; }
+        .info-section { padding: 1rem 0; border-top: 1px solid var(--border-color); }
+        .info-section h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
+        :focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+        #mode-text:focus-visible ~ .input-nav label[for="mode-text"],
+        #mode-file:focus-visible ~ .input-nav label[for="mode-file"],
+        #mode-pack:focus-visible ~ .input-nav label[for="mode-pack"],
+        #mode-analysis:focus-visible ~ .input-nav label[for="mode-analysis"],
+        #mode-history:focus-visible ~ .input-nav label[for="mode-history"] {
+            outline: 3px solid var(--primary-color); outline-offset: 3px;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+        }
+
     </style>
 </head>
 <body>
@@ -1684,13 +1793,29 @@
 </div>
                 </header>
                 <p class="app-description">学習するデータを選び、オプションを設定して開始してください。</p>
+                <section class="review-home-card" aria-labelledby="review-home-title">
+                    <div class="review-home-main">
+                        <div class="review-home-heading">
+                            <h2 id="review-home-title">今日の復習</h2>
+                            <span id="review-home-status" class="review-home-status" role="status" aria-live="polite">復習予定を確認中…</span>
+                        </div>
+                        <div class="review-home-counts">
+                            <div><strong id="review-home-due-count">—</strong><span>今日の対象</span></div>
+                            <div><strong id="review-home-overdue-count">—</strong><span>期限超過</span></div>
+                            <div><strong id="review-home-upcoming-count">—</strong><span>3日以内</span></div>
+                            <div><strong id="review-home-new-count">—</strong><span>新規問題</span></div>
+                        </div>
+                        <p class="review-home-note">今日の対象には、期限超過と今日が期限の問題を含みます。新規問題（復習スケジュール未登録）は通常学習から開始します。</p>
+                    </div>
+                    <button id="start-daily-review-btn" class="btn-primary" type="button" disabled>今日の復習を始める</button>
+                </section>
                 <div class="input-section">
                     <!-- ラジオボタンで表示をCSSのみで切り替え -->
-                    <input checked="" hidden="" id="mode-text" name="input_mode" type="radio"/>
-                    <input hidden="" id="mode-file" name="input_mode" type="radio"/>
-                    <input hidden="" id="mode-pack" name="input_mode" type="radio"/>
-                    <input hidden="" id="mode-analysis" name="input_mode" type="radio"/>
-                    <input hidden="" id="mode-history" name="input_mode" type="radio"/>
+                    <input checked="" id="mode-text" name="input_mode" type="radio" class="sr-only"/>
+                    <input id="mode-file" name="input_mode" type="radio" class="sr-only"/>
+                    <input id="mode-pack" name="input_mode" type="radio" class="sr-only"/>
+                    <input id="mode-analysis" name="input_mode" type="radio" class="sr-only"/>
+                    <input id="mode-history" name="input_mode" type="radio" class="sr-only"/>
                     
                     <nav class="input-nav">
                         <label class="nav-item" for="mode-text">
@@ -1818,25 +1943,46 @@
                                 <div class="growth-stats-grid">
                                     <div class="growth-card">
                                         <div class="growth-value" id="stat-mastered-count">0</div>
-                                        <div class="growth-label">苦手克服した問題</div>
-                                        <div class="growth-sub">AgainからGood/Easy達成</div>
+                                        <div class="growth-label">定着済み問題数</div>
+                                        <div class="growth-sub">間隔7日以上・直近3回Good/Easy</div>
                                     </div>
                                     <div class="growth-card">
                                         <div class="growth-value" id="stat-mature-count">0</div>
-                                        <div class="growth-label">定着した問題</div>
-                                        <div class="growth-sub">復習間隔 7日以上</div>
+                                        <div class="growth-label">スケジュール登録数</div>
+                                        <div class="growth-sub">復習日時が保存された問題</div>
                                     </div>
                                     <div class="growth-card">
-                                        <div class="growth-value" id="stat-first-accuracy">--%</div>
+                                        <div class="growth-value" id="stat-first-accuracy">データ不足</div>
                                         <div class="growth-label">初回正答率</div>
                                         <div class="growth-sub" id="stat-first-total">0問中 0問</div>
                                     </div>
                                     <div class="growth-card">
-                                        <div class="growth-value" id="stat-review-accuracy">--%</div>
-                                        <div class="growth-label">復習正答率</div>
-                                        <div class="growth-sub" id="stat-review-total">0回中 0回</div>
+                                        <div class="growth-value" id="stat-review-accuracy">データ不足</div>
+                                        <div class="growth-label">2回目以降の正答率</div>
+                                        <div class="growth-sub" id="stat-review-total">—</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-review-due-count">0</div>
+                                        <div class="growth-label">復習対象数</div>
+                                        <div class="growth-sub">期限超過＋今日が期限</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-overdue-count">0</div>
+                                        <div class="growth-label">期限超過数</div>
+                                        <div class="growth-sub">現在時刻より前が期限</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-learning-days-analysis">0</div>
+                                        <div class="growth-label">学習日数</div>
+                                        <div class="growth-sub">回答ログがある現地日付の数</div>
+                                    </div>
+                                    <div class="growth-card">
+                                        <div class="growth-value" id="stat-weakness-count">0</div>
+                                        <div class="growth-label">苦手問題数</div>
+                                        <div class="growth-sub">直近誤答または正答率80%未満</div>
                                     </div>
                                 </div>
+                                <p class="retention-breakdown" id="stat-retention-breakdown" aria-live="polite">定着度：データ不足</p>
 
                                 <!-- 学習カレンダー & 初回正答率の週次推移 -->
                                 <div class="analytics-subgrid">
@@ -1940,7 +2086,7 @@
                 <div id="progress-bar-container"><div id="progress-bar"></div></div>
                 <div class="progress-info">
                     <div class="progress-info-left">
-                        <div id="progress-text"></div>
+                        <div id="progress-text" aria-live="polite" aria-atomic="true"></div>
                         <div id="mistake-counter"></div>
                     </div>
                     <div class="main-header-controls">
@@ -1960,7 +2106,7 @@
                 <div id="fill-view" class="problem-view"><div class="large-text"></div><div id="fill-content"></div><div class="input-form"></div></div>
             </div>
             <div id="action-area">
-                <div id="feedback-container"><span id="feedback-text"></span><button id="add-to-review-btn">復習リストに追加</button></div>
+                <div id="feedback-container" role="status" aria-live="polite" aria-atomic="true"><span id="feedback-text"></span><span id="answer-save-status" class="answer-save-status"></span><button id="add-to-review-btn">復習リストに追加</button></div>
                 
                 <div id="self-grading-container" class="button-container input-form">
                     <div id="self-grading-info"></div>
@@ -1976,23 +2122,23 @@
 
                 <div id="check-button-container" class="button-container input-form"><button id="review-btn" class="btn-secondary">後でもう一度確認</button><button id="ok-btn" class="btn-success btn-with-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>OK</span></button></div>
 
-                <!-- FSRS 4段階自己評価ボタン群（正解時に表示） -->
-                <div id="fsrs-rating-container" class="button-container input-form">
-                    <button type="button" class="btn-fsrs btn-fsrs-again" data-rating="1">
-                        <span class="fsrs-label">Again</span>
-                        <span class="fsrs-desc">"勘"</span>
+                <!-- 簡易間隔反復 4段階自己評価ボタン群（正解時に表示） -->
+                <div id="review-rating-container" class="button-container input-form" role="group" aria-label="次回復習までの間隔を評価">
+                    <button type="button" class="btn-review-rating btn-review-rating-again" data-rating="1">
+                        <span class="review-rating-label">Again</span>
+                        <span class="review-rating-desc">覚えていない</span>
                     </button>
-                    <button type="button" class="btn-fsrs btn-fsrs-hard" data-rating="2">
-                        <span class="fsrs-label">Hard</span>
-                        <span class="fsrs-desc">難しい</span>
+                    <button type="button" class="btn-review-rating btn-review-rating-hard" data-rating="2">
+                        <span class="review-rating-label">Hard</span>
+                        <span class="review-rating-desc">正解したが難しい</span>
                     </button>
-                    <button type="button" class="btn-fsrs btn-fsrs-good is-recommend" data-rating="3">
-                        <span class="fsrs-label">Good</span>
-                        <span class="fsrs-desc">普通</span>
+                    <button type="button" class="btn-review-rating btn-review-rating-good is-recommend" data-rating="3">
+                        <span class="review-rating-label">Good</span>
+                        <span class="review-rating-desc">普通に答えられた</span>
                     </button>
-                    <button type="button" class="btn-fsrs btn-fsrs-easy" data-rating="4">
-                        <span class="fsrs-label">Easy</span>
-                        <span class="fsrs-desc">簡単</span>
+                    <button type="button" class="btn-review-rating btn-review-rating-easy" data-rating="4">
+                        <span class="review-rating-label">Easy</span>
+                        <span class="review-rating-desc">簡単に答えられた</span>
                     </button>
                 </div>
 
@@ -2037,6 +2183,57 @@
         </div>
     </div>
     
+    <!-- データ・プライバシー・利用上の注意 (独立画面) -->
+    <div id="info-screen" class="screen info-screen" aria-labelledby="info-screen-title">
+        <main class="info-screen-content">
+            <header class="info-screen-header">
+                <div><p class="info-eyebrow">Q-ONE / TRANSPARENCY</p><h1 id="info-screen-title">データと利用上の注意</h1></div>
+                <button id="close-data-info-btn" class="btn-secondary" type="button">ホームへ戻る</button>
+            </header>
+            <section class="info-section">
+                <h2>1. データの保存場所</h2>
+                <p>問題パック、解答履歴、復習スケジュール、学習設定などは、利用中のブラウザーの <strong>IndexedDB</strong> に保存されます。アプリの運営者が管理する学習データ用サーバーには保存されません。保存データはこのブラウザー・端末・公開元の組み合わせに依存し、暗号化された保管領域であることを保証するものではありません。</p>
+            </section>
+            <section class="info-section">
+                <h2>2. アカウント・クラウド同期</h2>
+                <p>Q-Oneにはアカウント登録、ログイン、クラウド同期機能はありません。別の端末やブラウザーへ自動で学習データは引き継がれません。ブラウザーのサイトデータ削除、プライベートブラウズ終了、端末の初期化、ストレージ容量の都合などでデータが失われる可能性があります。</p>
+            </section>
+            <section class="info-section">
+                <h2>3. 外部通信と問題データの送信</h2>
+                <p>画面表示・動画/QR関連機能のため、次の第三者ライブラリを jsDelivr CDN から読み込みます。</p>
+                <ul>
+                    <li>qrcode-generator 2.0.4</li>
+                    <li>mp4-muxer 5.2.2</li>
+                    <li>MP4Box.js 0.5.3</li>
+                    <li>jsQR 1.4.0（QR解析用Web Workerから読み込み）</li>
+                </ul>
+                <p>CDNへのアクセスでは、接続先にIPアドレス、ブラウザー情報、要求されたライブラリの情報などが伝わる場合があります。確認したQ-Oneのソースコードには、問題文・正解・解答履歴を外部へ送るための fetch / XMLHttpRequest / WebSocket / sendBeacon は実装されていません。問題の解析・動画処理はブラウザー内で行います。ただし、第三者ライブラリの配布元やブラウザー・拡張機能などの挙動まで保証するものではありません。</p>
+            </section>
+            <section class="info-section">
+                <h2>4. バックアップと復元</h2>
+                <p>設定画面からJSONバックアップを定期的にエクスポートし、端末外の安全な場所へ保管してください。バックアップには問題文、正解、学習履歴などが含まれることがあります。他人に渡したり、公開場所へアップロードしたりしないでください。インポートは現在の保存データ全体を置き換えます。出所が不明なJSONを読み込まず、復元前に必要なバックアップを別途保管してください。</p>
+            </section>
+            <section class="info-section">
+                <h2>5. オフライン利用</h2>
+                <p>この配布版にはService Workerによるアプリ本体・ライブラリのオフラインキャッシュがありません。外部CDNからのライブラリ読み込みが必要なため、オフラインで全機能を利用できるとは案内していません。ネットワークがない場合、一部機能または初回起動が動作しない可能性があります。</p>
+            </section>
+            <section class="info-section">
+                <h2>6. 問題の正確性・著作権</h2>
+                <p>生成AIなどを利用して作成した問題・解説・正解は、誤り、古い情報、曖昧な表現を含む可能性があります。Q-Oneは内容の正確性を保証しません。教科書・辞書・信頼できる資料などで確認してから学習に使ってください。他者が作成した問題文、画像、音声、動画を取り込む場合は、著作権・利用規約・ライセンスを確認し、必要な許諾や出典表示を行ってください。</p>
+            </section>
+            <section class="info-section">
+                <h2>7. 復習提案の計算方法</h2>
+                <p>Q-Oneは正式なFSRSではなく、説明可能性を優先した独自の簡易間隔反復方式を使います。初回の基準間隔は Again＝10分、Hard＝1日、Good＝3日、Easy＝7日です。2回目以降のAgainは前回間隔×0.25（10分以上・1日以下）、Hard/Good/Easyは前回間隔×1.2/2.0/2.8×難易度係数です。難易度係数は 1.1 −（難易度 − 1）×0.02 で、難易度は1〜10の範囲で評価に応じて変化します。Againは難易度を上げ、Hardは少し上げ、Good/Easyは下げます。Again以外の間隔は1日以上・最大3650日です。</p>
+                <p>この計算は学習履歴に基づく提案であり、記憶保持率や学習成績を予測・保証するものではありません。「定着済み」は、累計評価3回以上、現在の間隔7日以上、直近3回がGoodまたはEasyというアプリ内の判定条件です。学習効果を確かめるには、利用者を対象とした別途の実験が必要です。</p>
+            </section>
+            <section class="info-section">
+                <h2>8. 第三者ライブラリとライセンス</h2>
+                <p>各ライブラリの著作権表示・ライセンス本文・参照先は、配布物の <code>THIRD_PARTY_LICENSES.md</code> に記載しています。mp4-muxer は npm 上で非推奨（deprecated）とされ、後継ライブラリへの移行が案内されています。現行処理との互換性を保つため本版では利用を継続していますが、今後の保守・更新が行われない可能性があります。バージョン固定やライセンス確認は安全性の保証ではありません。</p>
+            </section>
+            <p class="info-last-updated">最終確認日：2026-11-09。更新時には依存関係・通信処理・ライセンスを再確認してください。</p>
+        </main>
+    </div>
+
     <!-- 設定モーダル -->
     <div id="settings-modal" class="modal">
         <div class="modal-overlay"></div>
@@ -2053,7 +2250,7 @@
                     </label>
                     <div style="margin-top: 1.5rem;">
                         <label for="font-size-slider" style="display:block; font-size:0.95rem; font-weight:600; margin-bottom:0.6rem;">文字サイズ: <span id="font-size-value">100</span>%</label>
-                        <input id="font-size-slider" max="200" min="50" type="range" value="100"/>
+                        <input id="font-size-slider" max="150" min="75" type="range" value="100"/>
                     </div>
                 </div>
                 
@@ -2065,6 +2262,11 @@
                         <button id="import-data-btn" class="btn-secondary">JSONデータをインポート</button>
                         <button id="reset-data-btn" class="btn-secondary" style="border-color: var(--danger-color); color: var(--danger-color); margin-top: 0.5rem;">全データリセット (危険)</button>
                     </div>
+                </div>
+                <div class="settings-wrapper">
+                    <h3 style="margin-top:0; margin-bottom:0.8rem; font-size:1.1rem;">プライバシー・利用上の注意</h3>
+                    <p class="settings-description">保存場所、外部ライブラリ、バックアップ、著作権上の注意を確認できます。</p>
+                    <button id="open-data-info-btn" class="btn-secondary" type="button">データと利用上の注意を確認</button>
                 </div>
             </div>
         </div>
@@ -2227,7 +2429,7 @@
         </div>
     </div>
     <!-- 処理中プログレスモーダル（動画生成・解析用） -->
-    <div id="progress-modal" class="modal">
+    <div id="progress-modal" class="modal" data-prevent-escape="true">
         <div class="modal-overlay" style="pointer-events: none;"></div>
         <div class="modal-content progress-modal-content">
             <h3 id="progress-modal-title">処理中...</h3>
