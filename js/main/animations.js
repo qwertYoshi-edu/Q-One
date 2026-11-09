@@ -44,11 +44,12 @@ export function hsvToRgb(h, s, v) {
 }
 
 export function triggerMeterAnimation(targetPercentage, visualEl, percentageEl, startColorHex, endColorHex) {
+    if (!visualEl || !percentageEl) return false;
     visualEl.style.setProperty('--percentage', 0);
     percentageEl.textContent = '0%';
     const startRgb = hexToRgb(startColorHex);
     const endRgb = hexToRgb(endColorHex);
-    if (!startRgb || !endRgb) return;
+    if (!startRgb || !endRgb) return false;
     const startHsv = rgbToHsv(startRgb.r, startRgb.g, startRgb.b);
     const endHsv = rgbToHsv(endRgb.r, endRgb.g, endRgb.b);
     const duration = 1200;
@@ -72,19 +73,17 @@ export function triggerMeterAnimation(targetPercentage, visualEl, percentageEl, 
         if (progress < 1) requestAnimationFrame(animationStep);
     }
     requestAnimationFrame(animationStep);
+    return true;
 }
 
 export function triggerPerfectAnimation() {
     const endScreen = screens.end;
-    if (!endScreen) {
-        console.warn('[Q-One:DOM] 終了画面がないため完了アニメーションを省略します。');
-        return;
-    }
+    if (!endScreen) return false;
     const visualEl = endScreen.querySelector('.results-visual');
     const percentageEl = endScreen.querySelector('#end-percentage');
     if (!visualEl || !percentageEl) {
-        console.warn('[Q-One:DOM] 完了アニメーション用要素が不足しています。');
-        return;
+        console.warn('[Q-One:Animation] 完了演出の要素がないため、演出をスキップします。');
+        return false;
     }
     endScreen.classList.remove('is-animating');
     percentageEl.textContent = '0%';
@@ -108,12 +107,13 @@ export function triggerPerfectAnimation() {
         }
         requestAnimationFrame(animationStep);
     }, 350);
+    return true;
 }
 
 export function triggerConfetti() {
-    if (!confettiCanvas) return;
+    if (!confettiCanvas) return false;
     const ctx = confettiCanvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return false;
     const W = window.innerWidth, H = window.innerHeight;
     confettiCanvas.width = W;
     confettiCanvas.height = H;
@@ -159,4 +159,5 @@ export function triggerConfetti() {
         }
     }
     draw();
+    return true;
 }

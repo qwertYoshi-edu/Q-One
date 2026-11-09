@@ -2,30 +2,36 @@ import * as DB from './db.js';
 import { state } from './state.js';
 import { startNewPass } from './quiz.js';
 import { escapeHtml } from './utils.js';
-import { buildLegacySessionMetrics } from './metrics.js';
 
 const historyListContainer = document.getElementById('history-entry-list');
 
-const MODE_LABELS = {
-    normal: '通常学習',
-    final_check: '直前チェック',
-    review: '復習',
-    weakness_training: '苦手克服特訓'
-};
+function getSessionPackTitle(session, packsById) {
+    const ids = session.packIds || (session.packId ? [session.packId] : []);
+    const titles = [...new Set(ids)].map(id => {
+        if (id === 'manual_input') return 'テキスト入力';
+        if (id === 'multiple') return '複数パック';
+        return packsById.get(id)?.title || (session.packTitle && ids.length === 1 ? session.packTitle : '削除されたパック');
+    });
+    return titles.length > 0 ? titles.join(' / ') : 'テキスト入力';
+}
+
+function getModeLabel(mode) {
+    return ({
+        normal: '通常学習',
+        final_check: '直前チェック',
+        review: '誤答復習',
+        retry_all: '全問再挑戦',
+        history_retry: '履歴から再挑戦',
+        weakness_training: '苦手克服特訓'
+    })[mode] || '学習';
+}
 
 export async function renderHistoryList() {
     if (!historyListContainer) return;
-
     try {
         await DB.initDB();
-        const [sessions, packs, logs] = await Promise.all([
-            DB.getAll('test_sessions'),
-            DB.getAll('packs'),
-            DB.getAll('answer_logs')
-        ]);
-        const legacyMetrics = buildLegacySessionMetrics(logs, sessions);
-
-        if (!sessions.length) {
+        const [sessions, packs] = await Promise.all([DB.getAll('test_sessions'), DB.getAll('packs')]);
+        if (!sessions || sessions.length === 0) {
             historyListContainer.innerHTML = `
                 <div style="padding: 3rem 1rem; text-align: center; color: var(--secondary-color);">
                     <p>まだ学習履歴がありません。<br>問題を解くとここに履歴が記録されます。</p>
@@ -34,33 +40,25 @@ export async function renderHistoryList() {
         }
 
         sessions.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
-        const packMap = new Map((packs || []).map(pack => [pack.id, pack]));
-        historyListContainer.innerHTML = '';
+        const packsById = new Map((packs || []).map(pack => [pack.id, pack]));
+        historyListContainer.replaceChildren();
 
-        sessions.forEach(session => {
+        for (const session of sessions) {
             const date = new Date(session.startedAt || Date.now());
             const dateStr = `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-            const sessionPackIds = Array.isArray(session.packIds) && session.packIds.length
-                ? session.packIds
-                : (session.packId && !['manual_input', 'multiple'].includes(session.packId) ? [session.packId] : []);
-            const isPack = sessionPackIds.length > 0 || (session.packId && !['manual_input', 'multiple'].includes(session.packId));
-            const packData = session.packId && session.packId !== 'multiple' ? packMap.get(session.packId) : null;
-            const title = session.packTitle || packData?.title || (sessionPackIds.length > 1 ? '複数パック' : (isPack ? '削除されたパック' : 'テキスト入力'));
-            const legacy = legacyMetrics.get(session.id);
-            const answered = Number.isFinite(session.answeredCount)
-                ? session.answeredCount
-                : (legacy?.answered ?? (session.completedAt ? (session.totalQuestions || 0) : 0));
-            const correct = Number.isFinite(session.answeredCount)
-                ? Math.min(answered, Math.max(0, Number(session.correctCount) || 0))
-                : Math.min(answered, Math.max(0, legacy?.correct ?? (Number(session.correctCount) || 0)));
-            const checkAnswered = Number(session.checkAnsweredCount) || legacy?.checkAnswered || 0;
-            const checkCorrect = Number(session.checkAnsweredCount) > 0
-                ? (Number(session.checkOKCount) || 0)
-                : (legacy?.checkCorrect || 0);
-            const retryAnswered = Number(session.retryAnsweredCount) || legacy?.retryAnswered || 0;
-            const interimAnswered = Number(session.interimReviewAnsweredCount) || legacy?.interimReviewAnswered || 0;
-            const accuracy = answered > 0 ? Math.round((correct / answered) * 100) : 0;
-            const mode = session.mode || 'normal';
+            const title = getSessionPackTitle(session, packsById);
+            const totalQuestions = Number(session.totalQuestions) || 0;
+            const answeredCount = Number.isFinite(Number(session.answeredCount)) ? Number(session.answeredCount) : totalQuestions;
+            const correctCount = Math.min(answeredCount, Math.max(0, Number(session.correctCount) || 0));
+            const accuracy = answeredCount > 0
+                ? (Number.isFinite(Number(session.accuracy)) ? Math.round(Number(session.accuracy)) : Math.round(correctCount / answeredCount * 100))
+                : 0;
+            const checkAnsweredCount = Math.max(0, Number(session.checkAnsweredCount) || 0);
+            const checkCorrectCount = Math.min(checkAnsweredCount, Math.max(0, Number(session.checkCorrectCount) || 0));
+            const checkSummary = checkAnsweredCount > 0
+                ? `<span class="history-stat-item">確認型の理解度 ${checkCorrectCount}/${checkAnsweredCount}問</span>`
+                : '';
+            const hasSnapshot = Array.isArray(session.problemSnapshot) && session.problemSnapshot.length > 0;
 
             const article = document.createElement('article');
             article.className = 'history-entry';
@@ -68,77 +66,90 @@ export async function renderHistoryList() {
                 <div class="history-entry-main">
                     <div class="history-header">
                         <span class="history-badge history-date">${dateStr}</span>
-                        <span class="history-badge ${isPack ? 'history-pack' : ''}">${escapeHtml(isPack ? (packData?.category || session.packCategory || (sessionPackIds.length > 1 ? '複数パック' : 'パック')) : 'テキスト')}</span>
-                        <span class="history-badge">${escapeHtml(MODE_LABELS[mode] || '学習')}</span>
+                        <span class="history-badge">${escapeHtml(getModeLabel(session.mode))}</span>
+                        <span class="history-badge ${session.packId !== 'manual_input' ? 'history-pack' : ''}">${escapeHtml(title)}</span>
                     </div>
                     <div class="history-title-row">
                         <h3>${escapeHtml(title)}</h3>
                         <span class="history-range-badge">範囲: ${escapeHtml(session.range || '全問')}</span>
                     </div>
                     <div class="history-stats">
-                        <span class="history-stat-item">${answered}問回答 / ${session.totalQuestions || 0}問</span>
-                        <span class="history-stat-item">${correct}問正解</span>
-                        <span class="history-stat-item highlight">正答率 ${answered > 0 ? `${accuracy}%` : '未回答'}</span>
-                        ${checkAnswered > 0 ? `<span class="history-stat-item">確認型理解度 ${Math.round(checkCorrect / checkAnswered * 100)}% (${checkCorrect}/${checkAnswered})</span>` : ''}
-                        ${retryAnswered + interimAnswered > 0 ? `<span class="history-stat-item">再回答 ${retryAnswered + interimAnswered}回</span>` : ''}
+                        <span class="history-stat-item">${answeredCount}/${totalQuestions}問回答・${correctCount}問正解</span>
+                        <span class="history-stat-item highlight">正答率 ${answeredCount > 0 ? `${accuracy}%` : '未回答'}</span>
+                        ${checkSummary}
                     </div>
+                    ${!hasSnapshot ? '<p class="history-snapshot-notice">旧形式の履歴：当時の問題データは保存されていません。</p>' : ''}
                 </div>
                 <div class="history-retry-actions" aria-label="リトライ操作">
-                    <button class="retry-action btn-retry-history" type="button">
-                        <span aria-hidden="true">↻</span> もう一度解く
-                    </button>
+                    <button class="retry-action btn-retry-history" type="button">↻ もう一度解く</button>
                 </div>`;
 
             article.querySelector('.btn-retry-history')?.addEventListener('click', () => {
-                retryFromHistory(session, packData).catch(error => {
-                    console.error('[Q-One:Error] 履歴からの再挑戦に失敗:', error);
-                    alert(`履歴から問題を復元できませんでした。\n${error.message || error}`);
-                });
+                retryFromHistory(session, packsById);
             });
             historyListContainer.appendChild(article);
-        });
+        }
     } catch (error) {
         console.error('[Q-One:Error] 履歴読み込み失敗:', error);
-        historyListContainer.textContent = '学習履歴を読み込めませんでした。コンソールで原因を確認してください。';
+        historyListContainer.innerHTML = `<div class="analysis-empty-state"><p>履歴を読み込めませんでした。</p><p>${escapeHtml(error.message || String(error))}</p></div>`;
     }
 }
 
-async function retryFromHistory(session, packData) {
-    let problemsToRun = Array.isArray(session.problemSnapshot)
-        ? session.problemSnapshot
-        : (Array.isArray(session.problemsSnapshot) ? session.problemsSnapshot : null);
+async function retryFromHistory(session, packsById) {
+    let problemsToRun = [];
+    const hasSnapshot = Array.isArray(session.problemSnapshot) && session.problemSnapshot.length > 0;
 
-    if (problemsToRun?.length) {
-        problemsToRun = JSON.parse(JSON.stringify(problemsToRun));
-    } else if (session.packId && !['manual_input', 'multiple'].includes(session.packId) && packData?.problems?.length) {
-        const confirmed = confirm('この履歴には当時の問題スナップショットがありません。現在保存されている問題パックの内容で再挑戦します。過去の内容と異なる可能性があります。続行しますか？');
-        if (!confirmed) return;
-        problemsToRun = JSON.parse(JSON.stringify(packData.problems));
+    if (hasSnapshot) {
+        problemsToRun = JSON.parse(JSON.stringify(session.problemSnapshot));
     } else {
-        alert('この古い履歴には問題データのスナップショットがありません。元の問題パックも見つからないため、当時の問題を正確に再現できません。');
+        const packId = session.packId;
+        const packData = packsById.get(packId);
+        if (packId && packId !== 'manual_input' && packData?.problems?.length) {
+            const proceed = confirm(
+                'この履歴は旧形式のため、当時の問題データが保存されていません。\\n現在の問題パックの内容を使って再挑戦しますか？'
+            );
+            if (!proceed) return;
+            problemsToRun = JSON.parse(JSON.stringify(packData.problems));
+            state.selectedPackData = packData;
+            state.currentPackId = packData.id;
+            // スナップショットがない旧履歴に限り、保存されていた範囲を現行パックへ適用する。
+            if (session.range && session.range.includes('~')) {
+                const [startText, endText] = session.range.split('~').map(value => value.trim());
+                const start = Number.parseInt(startText, 10);
+                const end = Number.parseInt(endText, 10);
+                const from = Number.isNaN(start) ? 0 : Math.max(0, start - 1);
+                const to = Number.isNaN(end) ? problemsToRun.length : Math.min(problemsToRun.length, end);
+                if (from < to) problemsToRun = problemsToRun.slice(from, to);
+            }
+        } else {
+            alert('この旧履歴には問題データのスナップショットがなく、元の問題パックも利用できません。\\nテキストエリアの現在の内容とは同一とは限らないため、安全のため再挑戦を中止しました。');
+            return;
+        }
+    }
+
+    if (problemsToRun.length === 0) {
+        alert('再挑戦できる問題データがありません。');
         return;
     }
 
-    if (!problemsToRun.length) {
-        alert('この履歴に再挑戦できる問題が保存されていません。');
-        return;
-    }
+    const normalizedPackIds = [...new Set(problemsToRun.map(problem => problem.packId || session.packId || 'manual_input'))];
+    problemsToRun = problemsToRun.map((problem, index) => ({
+        ...problem,
+        packId: problem.packId || normalizedPackIds[0] || 'manual_input',
+        questionId: problem.questionId || problem.problemId || `q_${index + 1}`,
+        revision: Number.isInteger(problem.revision) ? problem.revision : 1
+    }));
 
-    const mode = ['normal', 'final_check', 'review', 'weakness_training'].includes(session.mode)
-        ? session.mode
-        : (session.mode === 'final_check' ? 'final_check' : 'normal');
-    state.isFinalCheckMode = mode === 'final_check';
-    state.currentPackId = session.packId || problemsToRun[0].packId || 'manual_input';
-    state.selectedPackData = packData || null;
     state.originalWordList = JSON.parse(JSON.stringify(problemsToRun));
+    state.currentPackId = normalizedPackIds.length === 1 ? normalizedPackIds[0] : 'multiple';
+    if (normalizedPackIds.length !== 1 || normalizedPackIds[0] === 'manual_input') state.selectedPackData = null;
+    state.isFinalCheckMode = session.mode === 'final_check';
+    state.isSelfGradingMode = Boolean(session.isSelfGradingMode) && !state.isFinalCheckMode;
 
-    startNewPass(problemsToRun, mode === 'review' || mode === 'weakness_training', {
-        mode,
-        sourceSessionId: session.id,
-        packId: state.currentPackId,
-        packTitle: session.packTitle || packData?.title || '',
-        packCategory: session.packCategory || packData?.category || '',
-        range: session.range || '履歴スナップショット'
+    startNewPass(problemsToRun, false, {
+        mode: state.isFinalCheckMode ? 'final_check' : 'history_retry',
+        range: session.range || '全問',
+        packTitle: session.packTitle || ''
     });
 }
 
