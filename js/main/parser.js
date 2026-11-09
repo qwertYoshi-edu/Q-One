@@ -5,8 +5,8 @@ export function parseImportance(text) {
         : { text: text.trim(), importance: 1 };
 }
 
-export function parseText(text, defaultPackId = 'manual_input') {
-    const rawChunks = text.trim().split('#').map(p => p.trim()).filter(Boolean);
+export function parseText(text, defaultPackId = 'manual_input', options = {}) {
+    const rawChunks = String(text ?? '').trim().split('#').map(p => p.trim()).filter(Boolean);
     const validProblems = [];
     let failedCount = 0;
 
@@ -16,7 +16,10 @@ export function parseText(text, defaultPackId = 'manual_input') {
         else failedCount++;
     });
 
-    if (failedCount > 0) {
+    if (options.strict && failedCount > 0) {
+        throw new Error(`問題形式が正しくない項目が ${failedCount} 件あります。登録を中止しました。`);
+    }
+    if (failedCount > 0 && typeof alert === 'function') {
         alert(`⚠️ 注意: 入力された問題のうち ${failedCount} 件の形式が正しくないためスキップされました。\n記号の使い方（@, # など）を確認してください。`);
     }
 
@@ -51,11 +54,15 @@ export function parseProblem(pStr, index = 0, defaultPackId = 'manual_input') {
     };
 
     if (m = coreStr.match(/^\[check\](.*?)\@(.*)$/s)) {
-        return { ...baseProblem, type: 'check', largeText: m[1].trim(), smallText: m[2].trim() };
+        const largeText = m[1].trim();
+        const smallText = m[2].trim();
+        return largeText && smallText ? { ...baseProblem, type: 'check', largeText, smallText } : null;
     }
 
     if (m = coreStr.match(/^\[enter\](.*?)\@(.*)$/s)) {
-        return { ...baseProblem, type: 'enter', largeText: m[1].trim(), correctAnswer: m[2].trim() };
+        const largeText = m[1].trim();
+        const correctAnswer = m[2].trim();
+        return largeText && correctAnswer ? { ...baseProblem, type: 'enter', largeText, correctAnswer } : null;
     }
 
     if (m = coreStr.match(/^\[fill\](.*?)\@(.*)$/s)) {
@@ -69,7 +76,10 @@ export function parseProblem(pStr, index = 0, defaultPackId = 'manual_input') {
             lastIndex = fm.index + fm[0].length;
         }
         parts.push(text.substring(lastIndex));
-        return { ...baseProblem, type: 'fill', largeText: m[1].trim(), questionParts: parts, answers };
+        const largeText = m[1].trim();
+        return largeText && answers.length > 0 && answers.every(answer => answer.length > 0)
+            ? { ...baseProblem, type: 'fill', largeText, questionParts: parts, answers }
+            : null;
     }
 
     if (m = coreStr.match(/^\[select\](.*?)\@(.*?)((?:<[^>]+>|{[^}]+})+)$/s)) {
@@ -83,12 +93,15 @@ export function parseProblem(pStr, index = 0, defaultPackId = 'manual_input') {
                 options.push(correctAnswer);
             }
         });
-        return { ...baseProblem, type: 'select', largeText: largeText.trim(), smallText: smallText.trim(), options, correctAnswer };
+        const questionText = largeText.trim();
+        return questionText && options.length >= 2 && correctAnswer && options.every(option => option.length > 0)
+            ? { ...baseProblem, type: 'select', largeText: questionText, smallText: smallText.trim(), options, correctAnswer }
+            : null;
     }
 
     return null;
 }
 
 export function reconstructProblemString(problem) {
-    return problem.originalString;
+    return typeof problem?.originalString === 'string' ? problem.originalString : '';
 }

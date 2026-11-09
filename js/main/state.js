@@ -26,11 +26,11 @@ export const state = {
     currentPackId: 'manual_input',
     selectedPackData: null,
     currentSessionId: null,
-    currentSessionMode: 'normal',
-    currentSessionStartedAt: null,
-    sessionReady: Promise.resolve(),
-    sessionAnswerResults: new Map(),
-    sessionAnswerCount: 0,
-    answerLocked: false,
-    pendingAnswer: null
+    sessionMode: 'normal',
+    sessionStartedAt: null,
+    currentSessionSavePromise: Promise.resolve(true),
+    currentSessionSaveError: null,
+    sessionAttemptCounts: Object.create(null),
+    currentQuestionStartTime: 0,
+    answerHandledForCurrent: false,
 };

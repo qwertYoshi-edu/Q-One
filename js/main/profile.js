@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import { buildLegacySessionMetrics } from './metrics.js';
 import {
     profileModal, profileNameInput,
     statTotalQuestions, statCorrectRate, statLearningDays
@@ -7,8 +8,13 @@ import {
 export async function openProfileModal() {
     if (!profileModal) return;
     profileModal.classList.add('active');
-    await loadUserProfile();
-    await loadStatistics();
+    try {
+        await loadUserProfile();
+        await loadStatistics();
+    } catch (error) {
+        console.error('[Q-One:Error] プロフィールの読み込みに失敗しました:', error);
+        alert('プロフィール情報を読み込めませんでした。ストレージの状態を確認してください。');
+    }
 }
 
 async function loadUserProfile() {
@@ -26,71 +32,64 @@ async function loadStatistics() {
         db.getAll('test_sessions'),
         db.getAll('answer_logs')
     ]);
+    const legacyMetrics = buildLegacySessionMetrics(logs, sessions);
+    let totalAnswered = 0;
+    let totalCorrect = 0;
+    let checkAnswered = 0;
+    let checkCorrect = 0;
+    const uniqueDays = new Set();
+    const modeStats = new Map([
+        ['normal', { label: '通常学習', answered: 0, correct: 0 }],
+        ['final_check', { label: '直前チェック', answered: 0, correct: 0 }],
+        ['review', { label: '復習', answered: 0, correct: 0 }],
+        ['weakness_training', { label: '苦手克服特訓', answered: 0, correct: 0 }]
+    ]);
+    let interimReviewAnswered = 0;
 
-    const totals = {
-        answered: 0,
-        correct: 0,
-        days: new Set(),
-        normal: { answered: 0, correct: 0 },
-        final_check: { answered: 0, correct: 0 },
-        review: { answered: 0, correct: 0 },
-        retry: { answered: 0, correct: 0 },
-        weakness_training: { answered: 0, correct: 0 }
-    };
+    sessions.forEach(session => {
+        const legacy = legacyMetrics.get(session.id);
+        const answered = Number.isFinite(session.answeredCount)
+            ? Math.max(0, session.answeredCount)
+            : Math.max(0, legacy?.answered ?? (session.completedAt ? Number(session.totalQuestions) || 0 : 0));
+        const correct = Number.isFinite(session.answeredCount)
+            ? Math.min(answered, Math.max(0, Number(session.correctCount) || 0))
+            : Math.min(answered, Math.max(0, legacy?.correct ?? (Number(session.correctCount) || 0)));
+        totalAnswered += answered;
+        totalCorrect += correct;
 
-    for (const session of sessions || []) {
-        const answeredValue = session.learningAnsweredCount ?? session.answeredCount ?? session.totalQuestions;
-        const correctValue = session.learningCorrectCount ?? session.correctCount ?? 0;
-        const answered = Math.max(0, Number(answeredValue) || 0);
-        const correct = Math.min(answered, Math.max(0, Number(correctValue) || 0));
-        totals.answered += answered;
-        totals.correct += correct;
+        const mode = modeStats.has(session.mode) ? session.mode : 'normal';
+        const bucket = modeStats.get(mode);
+        bucket.answered += answered;
+        bucket.correct += correct;
 
-        const mode = session.mode || 'normal';
-        let category = mode;
-        if (mode === 'history_retry' || mode === 'retry_all') category = 'retry';
-        if (!totals[category]) category = 'normal';
-        totals[category].answered += answered;
-        totals[category].correct += correct;
+        const sessionCheckAnswered = Math.max(0, Number(session.checkAnsweredCount) || legacy?.checkAnswered || 0);
+        checkAnswered += sessionCheckAnswered;
+        checkCorrect += Math.min(sessionCheckAnswered, Number(session.checkAnsweredCount) > 0
+            ? Math.max(0, Number(session.checkOKCount) || 0)
+            : Math.max(0, legacy?.checkCorrect || 0));
+        interimReviewAnswered += Math.max(0, Number(session.interimReviewAnsweredCount) || legacy?.interimReviewAnswered || 0);
 
         if (session.startedAt) {
             const date = new Date(session.startedAt);
-            if (!Number.isNaN(date.getTime())) {
-                totals.days.add(`${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`);
-            }
+            const dateString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            uniqueDays.add(dateString);
         }
-    }
+    });
 
-    const sessionsById = new Map((sessions || []).map(session => [session.id, session]));
-    const checkBySessionProblem = new Map();
-    for (const log of logs || []) {
-        if (log.attemptType === 'final_check' || log.mode === 'final_check' ||
-            sessionsById.get(log.sessionId)?.mode === 'final_check') continue;
-        if (log.problemType !== 'check' && log.attemptType !== 'check_understanding') continue;
-        const key = `${log.sessionId || 'unknown'}|${log.problemKey || log.questionId || log.problemId || log.id}`;
-        const previous = checkBySessionProblem.get(key);
-        if (!previous || (Number(log.timestamp) || 0) >= (Number(previous.timestamp) || 0)) {
-            checkBySessionProblem.set(key, log);
-        }
-    }
-    const checkLogs = [...checkBySessionProblem.values()];
-    const checkCorrect = checkLogs.filter(log => log.isCorrect === true || log.isCorrect === 1).length;
+    const correctRate = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
+    if (statTotalQuestions) statTotalQuestions.textContent = totalAnswered;
+    if (statCorrectRate) statCorrectRate.textContent = totalAnswered > 0 ? `${correctRate}%` : '--%';
+    if (statLearningDays) statLearningDays.textContent = uniqueDays.size;
 
-    const correctRate = totals.answered > 0 ? Math.round(totals.correct / totals.answered * 100) : 0;
-    if (statTotalQuestions) statTotalQuestions.textContent = String(totals.answered);
-    if (statCorrectRate) statCorrectRate.textContent = `${correctRate}%`;
-    if (statLearningDays) statLearningDays.textContent = String(totals.days.size);
-
-    const breakdown = document.getElementById('stat-mode-breakdown');
-    if (breakdown) {
-        const format = (label, data) => `${label} ${data.answered}問・${data.correct}問正解`;
-        breakdown.textContent = [
-            format('通常学習', totals.normal),
-            format('直前チェック', totals.final_check),
-            format('誤答復習', totals.review),
-            format('再挑戦', totals.retry),
-            format('苦手特訓', totals.weakness_training),
-            `確認型問題の理解度 ${checkCorrect}/${checkLogs.length}問`
-        ].join(' / ');
+    const modeBreakdown = document.getElementById('stat-mode-breakdown');
+    if (modeBreakdown) {
+        const rows = [...modeStats.values()].map(item => {
+            const rate = item.answered ? `${Math.round(item.correct / item.answered * 100)}%` : '--%';
+            return `${item.label}: ${item.answered}問 / 正答率 ${rate}`;
+        });
+        const checkRate = checkAnswered ? `${Math.round(checkCorrect / checkAnswered * 100)}%` : '--%';
+        rows.push(`確認型の理解度: ${checkAnswered}問 / ${checkRate}`);
+        rows.push(`一旦復習: ${interimReviewAnswered}回`);
+        modeBreakdown.textContent = rows.join('　｜　');
     }
 }
