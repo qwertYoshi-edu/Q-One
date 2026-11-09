@@ -1,6 +1,7 @@
 import * as DB from './db.js';
 import { startNewPass } from './quiz.js';
-import { escapeHtml } from './utils.js';
+import { escapeHtml, classifyReviewStates, isMasteredReviewState } from './utils.js';
+import { summarizeProblemPerformance, calculateAccuracyPercent } from './analysis-metrics.js';
 
 const subjectSelect = document.getElementById('analysis-subject-select');
 const packSelect = document.getElementById('analysis-pack-select');
@@ -13,6 +14,11 @@ const statFirstAccuracy = document.getElementById('stat-first-accuracy');
 const statFirstTotal = document.getElementById('stat-first-total');
 const statReviewAccuracy = document.getElementById('stat-review-accuracy');
 const statReviewTotal = document.getElementById('stat-review-total');
+const statReviewDueCount = document.getElementById('stat-review-due-count');
+const statOverdueCount = document.getElementById('stat-overdue-count');
+const statLearningDays = document.getElementById('stat-learning-days-analysis');
+const statWeaknessCount = document.getElementById('stat-weakness-count');
+const statRetentionBreakdown = document.getElementById('stat-retention-breakdown');
 const calendarGrid = document.getElementById('calendar-heatmap-grid');
 const weeklyStatsList = document.getElementById('weekly-stats-list');
 
@@ -37,7 +43,7 @@ function normalizeLog(log, packProblem = null, inferredPackId = null) {
 }
 
 /**
- * 旧版では通常ログ(problemId=hash)とFSRSログ(questionId=q_n_hash)が別々に保存されていた。
+ * 旧版では通常ログ(problemId=hash)と簡易間隔反復ログ(questionId=q_n_hash)が別々に保存されていた。
  * problemIdの先頭6桁・sessionId・timeMs・正誤が一致する組だけ通常ログ側を除外する。
  * それ以外の履歴は削除せず、利用可能なpack情報から識別子を補完する。
  */
@@ -81,6 +87,7 @@ function normalizeAndDedupeLogs(rawLogs, packs = []) {
 
     return retained.sort((a, b) => a.timestamp - b.timestamp);
 }
+
 
 function getPackCategory(packMap, packId) {
     return packMap.get(packId)?.category || (packId === 'manual_input' ? 'テキスト入力' : '一般');
@@ -134,10 +141,10 @@ function resolveProblemFromHistory(latestLog, sessionsById, packsById, statsByKe
 export async function renderAnalysisDashboard() {
     try {
         await DB.initDB();
-        const [packs, rawLogs, fsrsStates, sessions, stats] = await Promise.all([
+        const [packs, rawLogs, reviewStates, sessions, stats] = await Promise.all([
             DB.getAll('packs'),
             DB.getAll('answer_logs'),
-            DB.getAll('fsrs_states'),
+            DB.getAll('fsrs_states'), // 旧DB名を後方互換のため維持。値は独自スケジューラの状態。
             DB.getAll('test_sessions'),
             DB.getAll('problem_stats')
         ]);
@@ -172,91 +179,102 @@ export async function renderAnalysisDashboard() {
         const dedupedLogs = normalizeAndDedupeLogs(rawLogs, packs);
         const filteredLogs = dedupedLogs.filter(log => targetPackIds.has(log.packId));
         const logsByProblem = groupLogsByProblem(filteredLogs);
-        const fsrsMap = new Map((fsrsStates || []).map(item => [item.id, item]));
+        const targetReviewStates = (reviewStates || []).filter(item => targetPackIds.has(item.packId) && item.due !== null && item.due !== undefined && Number.isFinite(Number(item.due)));
+        const reviewBuckets = classifyReviewStates(targetReviewStates, new Date(), 3);
+        const reviewStateMap = new Map(targetReviewStates.map(item => [item.id, item]));
 
         let firstCorrect = 0;
         let firstTotal = 0;
         let reviewCorrect = 0;
         let reviewTotal = 0;
-        let masteredCount = 0;
         currentWeaknessProblems = [];
-        const firstLogs = [];
+        const activeLearningDates = new Set();
 
         logsByProblem.forEach((problemLogs, problemKey) => {
             const learningLogs = problemLogs.filter(log => isAnalysisLearningLog(log, sessionsById));
             if (learningLogs.length === 0) return;
 
-            const firstLog = learningLogs[0];
-            firstLogs.push(firstLog);
-            firstTotal++;
-            if (firstLog.isCorrect) firstCorrect++;
-
-            const subsequentLogs = learningLogs.slice(1);
-            for (const log of subsequentLogs) {
-                reviewTotal++;
-                if (log.isCorrect) reviewCorrect++;
-            }
-
-            let hadAgain = false;
-            let againTime = 0;
-            let isOvercome = false;
+            const performance = summarizeProblemPerformance(learningLogs);
+            const firstLog = performance.firstLog;
+            firstTotal += performance.firstTotal;
+            firstCorrect += performance.firstCorrect;
+            reviewTotal += performance.reviewTotal;
+            reviewCorrect += performance.reviewCorrect;
             for (const log of learningLogs) {
-                if (log.rating === 1 || !log.isCorrect) {
-                    hadAgain = true;
-                    againTime = log.timestamp;
-                } else if (hadAgain && (log.rating === 3 || log.rating === 4)) {
-                    if (log.timestamp - againTime >= 24 * 60 * 60 * 1000) {
-                        isOvercome = true;
-                        break;
-                    }
-                }
+                if (Number.isFinite(log.timestamp) && log.timestamp > 0) activeLearningDates.add(localDateKey(new Date(log.timestamp)));
             }
-            if (isOvercome) masteredCount++;
 
-            const recentLogs = learningLogs.slice(-3);
-            const hasRecentMistake = recentLogs.some(log => log.rating === 1 || !log.isCorrect);
-            const correctCount = learningLogs.filter(log => log.isCorrect).length;
-            const accuracy = correctCount / learningLogs.length;
-            const isLowAccuracy = accuracy < 0.8;
-            const fsrs = fsrsMap.get(problemKey);
-            const isImmature = hadAgain && (!fsrs || (Number(fsrs.intervalDays) || 0) < 3);
-
-            if (hasRecentMistake || isLowAccuracy || isImmature) {
+            // 弱点は解答ログに基づいて判定し、期限・間隔は復習対象側に分離する。
+            if (performance.isWeak) {
                 const latestLog = learningLogs[learningLogs.length - 1];
                 const problem = resolveProblemFromHistory(latestLog, sessionsById, packsById, statsByKey);
-                // 型情報のない旧ログから不完全な問題を作らず、再挑戦可能なデータだけを使う。
                 if (problem?.type && problem.largeText !== undefined) {
-                    let reason = '要復習';
-                    if (hasRecentMistake) reason = '直近ミス';
-                    else if (isLowAccuracy) reason = `正答率${Math.round(accuracy * 100)}%`;
-                    else if (isImmature) reason = '未定着';
+                    const reasons = [];
+                    if (performance.hasRecentMistake) reasons.push('直近3回以内に誤答');
+                    if (performance.isLowAccuracy) reasons.push(`正答率${Math.round(performance.accuracy * 100)}% (${performance.correctCount}/${learningLogs.length})`);
+                    const schedule = reviewStateMap.get(problemKey);
+                    if (schedule) {
+                        reasons.push(`現在の復習間隔 ${formatReviewInterval(schedule.intervalDays)}`);
+                        const ratingNames = { 1: 'Again', 2: 'Hard', 3: 'Good', 4: 'Easy' };
+                        const recentRatings = (schedule.ratingHistory || []).slice(-3).map(item => ratingNames[Number(item.rating)] || '不明');
+                        if (recentRatings.length) reasons.push(`直近評価 ${recentRatings.join(' → ')}`);
+                    }
                     currentWeaknessProblems.push({
                         ...problem,
                         packId: latestLog.packId,
                         questionId: latestLog.questionId,
                         problemKey,
-                        weaknessReason: reason,
-                        accuracy: Math.round(accuracy * 100)
+                        weaknessReason: reasons.join(' / '),
+                        accuracy: Math.round(performance.accuracy * 100),
+                        correctCount: performance.correctCount,
+                        attemptCount: learningLogs.length,
+                        recentHistory: performance.recentLogs.map(log => ({ isCorrect: log.isCorrect, rating: log.rating, timestamp: log.timestamp }))
                     });
                 }
             }
         });
 
-        const targetFsrs = (fsrsStates || []).filter(item => targetPackIds.has(item.packId));
-        const matureCount = targetFsrs.filter(item => (Number(item.intervalDays) || 0) >= 7).length;
+        const masteredCount = targetReviewStates.filter(isMasteredReviewState).length;
+        const learningCount = targetReviewStates.filter(item => Number(item.state) === 1 && !isMasteredReviewState(item)).length;
+        const reviewCount = targetReviewStates.filter(item => Number(item.state) === 2 && !isMasteredReviewState(item)).length;
+        // 「新規」は reps=0 のスケジュール状態ではなく、既知の問題のうち未スケジュールの数。
+        const knownProblemKeys = new Set();
+        for (const pack of packs || []) {
+            if (!targetPackIds.has(pack.id)) continue;
+            (pack.problems || []).forEach((problem, index) => {
+                if (problem?.type === 'check') return;
+                const questionId = problem.questionId || problem.problemId || `q_${index + 1}`;
+                knownProblemKeys.add(`${pack.id}:${questionId}`);
+            });
+        }
+        for (const log of filteredLogs) {
+            if (!isCheckProblemLog(log)) knownProblemKeys.add(log.problemKey);
+        }
+        for (const stat of stats || []) {
+            if (targetPackIds.has(stat.packId) && stat.questionId && stat.problemData?.type !== 'check') knownProblemKeys.add(`${stat.packId}:${stat.questionId}`);
+            else if (typeof stat.problemId === 'string' && targetPackIds.has(stat.packId) && stat.problemId.includes(':')) knownProblemKeys.add(stat.problemId);
+        }
+        const scheduledKeys = new Set(targetReviewStates.map(item => item.id));
+        const newScheduleCount = [...knownProblemKeys].filter(key => !scheduledKeys.has(key)).length;
 
         if (statMasteredCount) statMasteredCount.textContent = String(masteredCount);
-        if (statMatureCount) statMatureCount.textContent = String(matureCount);
-        if (statFirstAccuracy) statFirstAccuracy.textContent = firstTotal > 0 ? `${Math.round(firstCorrect / firstTotal * 100)}%` : '--%';
-        if (statFirstTotal) statFirstTotal.textContent = `${firstTotal}問中 ${firstCorrect}問`;
-        if (statReviewAccuracy) statReviewAccuracy.textContent = reviewTotal > 0 ? `${Math.round(reviewCorrect / reviewTotal * 100)}%` : '--%';
-        if (statReviewTotal) statReviewTotal.textContent = `${reviewTotal}回中 ${reviewCorrect}回`;
+        if (statMatureCount) statMatureCount.textContent = String(targetReviewStates.length);
+        if (statFirstAccuracy) statFirstAccuracy.textContent = firstTotal > 0 ? `${calculateAccuracyPercent(firstCorrect, firstTotal)}%` : 'データ不足';
+        if (statFirstTotal) statFirstTotal.textContent = firstTotal > 0 ? `${firstTotal}問中 ${firstCorrect}問` : '初回解答ログなし';
+        if (statReviewAccuracy) statReviewAccuracy.textContent = reviewTotal > 0 ? `${calculateAccuracyPercent(reviewCorrect, reviewTotal)}%` : 'データ不足';
+        if (statReviewTotal) statReviewTotal.textContent = reviewTotal > 0 ? `${reviewTotal}回中 ${reviewCorrect}回` : '復習解答ログなし';
+        if (statReviewDueCount) statReviewDueCount.textContent = String(reviewBuckets.overdue.length + reviewBuckets.dueToday.length);
+        if (statOverdueCount) statOverdueCount.textContent = String(reviewBuckets.overdue.length);
+        if (statLearningDays) statLearningDays.textContent = String(activeLearningDates.size);
+        if (statWeaknessCount) statWeaknessCount.textContent = String(currentWeaknessProblems.length);
+        if (statRetentionBreakdown) {
+            statRetentionBreakdown.textContent = `定着度：新規 ${newScheduleCount}問 ／ 学習中 ${learningCount}問 ／ 復習中 ${reviewCount}問 ／ 定着済み ${masteredCount}問`;
+        }
 
-        renderCalendarHeatmap(filteredLogs);
-        renderWeeklyStats(firstLogs);
+        const learningActivityLogs = filteredLogs.filter(log => isAnalysisLearningLog(log, sessionsById));
+        renderCalendarHeatmap(learningActivityLogs);
+        renderWeeklyStats(learningActivityLogs);
         renderWeaknessList(currentWeaknessProblems);
-
-        if (filteredLogs.length === 0 && targetFsrs.length === 0) renderEmptyState();
     } catch (error) {
         console.error('[Q-One:Error] ダッシュボード集計エラー:', error);
         if (problemListContainer) {
@@ -264,6 +282,13 @@ export async function renderAnalysisDashboard() {
         }
         if (trainBtn) trainBtn.disabled = true;
     }
+}
+
+function formatReviewInterval(daysValue) {
+    const days = Number(daysValue) || 0;
+    if (days < 1) return `${Math.max(1, Math.round(days * 24 * 60))}分`;
+    if (days < 2) return `${Math.round(days * 24)}時間`;
+    return `${Number(days.toFixed(1))}日`;
 }
 
 function localDateKey(date) {
@@ -294,34 +319,43 @@ function renderCalendarHeatmap(logs) {
     }
 }
 
-function renderWeeklyStats(firstLogs) {
+function renderWeeklyStats(logs) {
     if (!weeklyStatsList) return;
     weeklyStatsList.innerHTML = '';
-    const now = Date.now();
-    const weekMs = 7 * 24 * 60 * 60 * 1000;
-    const weeks = [
-        { label: '今週', start: now - weekMs, end: now },
-        { label: '先週', start: now - weekMs * 2, end: now - weekMs },
-        { label: '2週前', start: now - weekMs * 3, end: now - weekMs * 2 },
-        { label: '3週前', start: now - weekMs * 4, end: now - weekMs * 3 }
-    ].map(week => ({ ...week, total: 0, correct: 0 }));
-
-    for (const firstLog of firstLogs) {
-        const week = weeks.find(item => firstLog.timestamp >= item.start && firstLog.timestamp < item.end);
+    const now = new Date();
+    const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const mondayOffset = (currentMonday.getDay() + 6) % 7;
+    currentMonday.setDate(currentMonday.getDate() - mondayOffset);
+    const weeks = Array.from({ length: 4 }, (_, index) => {
+        const start = new Date(currentMonday);
+        start.setDate(start.getDate() - (3 - index) * 7);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 7);
+        return { start, end, label: index === 3 ? '今週' : `${3 - index}週前`, total: 0, firstTotal: 0, firstCorrect: 0 };
+    });
+    const firstSeen = new Set();
+    const sorted = [...logs].sort((a, b) => a.timestamp - b.timestamp);
+    for (const log of sorted) {
+        const isFirstEverLog = !firstSeen.has(log.problemKey);
+        firstSeen.add(log.problemKey);
+        const date = new Date(log.timestamp);
+        const week = weeks.find(item => date >= item.start && date < item.end);
         if (!week) continue;
         week.total++;
-        if (firstLog.isCorrect) week.correct++;
+        if (isFirstEverLog) {
+            week.firstTotal++;
+            if (log.isCorrect) week.firstCorrect++;
+        }
     }
-
     for (const week of weeks) {
-        const rate = week.total > 0 ? `${Math.round(week.correct / week.total * 100)}%` : '判定保留';
+        const rate = week.firstTotal > 0 ? `${calculateAccuracyPercent(week.firstCorrect, week.firstTotal)}%` : 'データ不足';
         const row = document.createElement('div');
         row.className = 'weekly-stat-row';
         const label = document.createElement('span');
-        label.textContent = `${week.label} (${week.total}問)`;
+        label.textContent = `${week.label} · ${week.total}回学習`;
         const value = document.createElement('span');
         value.className = 'weekly-stat-rate';
-        value.textContent = rate;
+        value.textContent = `初回 ${rate}`;
         row.append(label, value);
         weeklyStatsList.appendChild(row);
     }
@@ -344,11 +378,12 @@ function renderWeaknessList(problems) {
         element.innerHTML = `
             <div class="analysis-card-main">
                 <div class="analysis-card-header">
-                    <span class="analysis-badge danger">${escapeHtml(problem.weaknessReason || '要復習')}</span>
-                    <span style="font-size:0.8rem;color:var(--secondary-color);">正答率: ${Number(problem.accuracy) || 0}%</span>
+                    <span class="analysis-badge danger">苦手</span>
+                    <span class="analysis-card-evidence">${escapeHtml(problem.weaknessReason || '解答履歴に根拠あり')}</span>
                 </div>
                 <div class="analysis-card-q">${escapeHtml(problem.largeText || '問題文')}</div>
                 <div class="analysis-card-ans">正解: ${escapeHtml(answer)}</div>
+                <div class="analysis-card-meta">解答 ${Number(problem.attemptCount) || 0}回 · 正解 ${Number(problem.correctCount) || 0}回</div>
             </div>`;
         problemListContainer.appendChild(element);
     }
@@ -359,10 +394,15 @@ function renderWeaknessList(problems) {
 function renderEmptyState() {
     if (statMasteredCount) statMasteredCount.textContent = '0';
     if (statMatureCount) statMatureCount.textContent = '0';
-    if (statFirstAccuracy) statFirstAccuracy.textContent = '--%';
+    if (statFirstAccuracy) statFirstAccuracy.textContent = 'データ不足';
     if (statFirstTotal) statFirstTotal.textContent = '0問中 0問';
-    if (statReviewAccuracy) statReviewAccuracy.textContent = '--%';
-    if (statReviewTotal) statReviewTotal.textContent = '0回中 0回';
+    if (statReviewAccuracy) statReviewAccuracy.textContent = 'データ不足';
+    if (statReviewTotal) statReviewTotal.textContent = '復習解答ログなし';
+    if (statReviewDueCount) statReviewDueCount.textContent = '0';
+    if (statOverdueCount) statOverdueCount.textContent = '0';
+    if (statLearningDays) statLearningDays.textContent = '0';
+    if (statWeaknessCount) statWeaknessCount.textContent = '0';
+    if (statRetentionBreakdown) statRetentionBreakdown.textContent = '定着度：データ不足';
     if (weeklyStatsList) weeklyStatsList.innerHTML = '';
     if (calendarGrid) calendarGrid.innerHTML = '';
     if (problemListContainer) {
@@ -397,9 +437,7 @@ export function initAnalysisModule() {
     if (trainBtn) {
         trainBtn.addEventListener('click', () => {
             if (currentWeaknessProblems.length === 0) return;
-            if (confirm(`抽出された苦手問題（${currentWeaknessProblems.length}問）で特訓を開始しますか？`)) {
-                startNewPass(currentWeaknessProblems, false, { mode: 'weakness_training' });
-            }
+            startNewPass(currentWeaknessProblems, false, { mode: 'weakness_training' });
         });
     }
     const analysisRadio = document.getElementById('mode-analysis');

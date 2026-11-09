@@ -21,9 +21,18 @@ import { initPackManager } from '../generator/pack-manager.js';
 import { initAnalysisModule } from './analysis.js';
 import { initHistoryModule } from './history.js';
 import * as DB from './db.js';
+import { getReviewOverview, getScheduledReviewCheckpoint, saveScheduledReviewCheckpoint } from './review.js';
 
 const BACKUP_FORMAT = 'q-one-backup';
 const BACKUP_VERSION = 1;
+const dailyReviewButton = document.getElementById('start-daily-review-btn');
+const dailyReviewStatus = document.getElementById('review-home-status');
+const dailyReviewDueCount = document.getElementById('review-home-due-count');
+const dailyReviewOverdueCount = document.getElementById('review-home-overdue-count');
+const dailyReviewUpcomingCount = document.getElementById('review-home-upcoming-count');
+const dailyReviewNewCount = document.getElementById('review-home-new-count');
+const dataInfoOpenButton = document.getElementById('open-data-info-btn');
+const dataInfoCloseButton = document.getElementById('close-data-info-btn');
 const STORE_KEY_FIELDS = Object.freeze({
     packs: 'id',
     test_sessions: 'id',
@@ -32,6 +41,8 @@ const STORE_KEY_FIELDS = Object.freeze({
     fsrs_states: 'id',
     user_settings: 'key'
 });
+
+document.querySelectorAll('.modal').forEach(modal => setupModal(modal));
 
 function listen(element, eventName, handler) {
     if (element) element.addEventListener(eventName, handler);
@@ -107,15 +118,79 @@ listen(listOverlayMain, 'click', () => mainScreen?.classList.remove('list-open')
 
 // ヘルプ・誤答コピー
 listen(helpBtn, 'click', () => helpModal?.classList.add('active'));
-setupModal(helpModal);
 listen(copyIncorrectBtn, 'click', () => {
     if (!copyTextarea || !copyModal) return;
     const incorrectProblemsText = state.reviewList.map(reconstructProblemString).filter(Boolean).join('#\n');
     copyTextarea.value = incorrectProblemsText;
     copyModal.classList.add('active');
 });
-setupModal(copyModal);
 listen(copyTextarea, 'click', function() { this.select(); });
+
+// 今日の復習：端末の現地日付で期限を集計し、保存済み問題のみを出題する。
+async function refreshDailyReviewHome() {
+    if (!dailyReviewButton) return;
+    dailyReviewButton.disabled = true;
+    if (dailyReviewStatus) dailyReviewStatus.textContent = '復習予定を確認中…';
+    try {
+        const [overview, checkpoint] = await Promise.all([
+            getReviewOverview(),
+            getScheduledReviewCheckpoint()
+        ]);
+        if (dailyReviewDueCount) dailyReviewDueCount.textContent = String(overview.todayTargetCount);
+        if (dailyReviewOverdueCount) dailyReviewOverdueCount.textContent = String(overview.overdueCount);
+        if (dailyReviewUpcomingCount) dailyReviewUpcomingCount.textContent = String(overview.upcomingCount);
+        if (dailyReviewNewCount) dailyReviewNewCount.textContent = String(overview.newCount);
+        dailyReviewButton.disabled = overview.queue.length === 0 && !checkpoint;
+        dailyReviewButton.textContent = checkpoint ? '復習を続きから再開' : '今日の復習を始める';
+        if (dailyReviewStatus) {
+            const unavailable = overview.unavailableCount > 0 ? `（問題データを復元できないもの ${overview.unavailableCount}件）` : '';
+            dailyReviewStatus.textContent = checkpoint
+                ? `中断した復習が ${checkpoint.questions.length - checkpoint.index}問 残っています。${unavailable}`
+                : overview.queue.length > 0
+                    ? `復習可能 ${overview.queue.length}問（今日の予定 ${overview.todayTargetCount}問）${unavailable}`
+                    : overview.dueTodayCount > 0
+                        ? `今日の予定は ${overview.dueTodayCount}問です。復習時刻になると開始できます。${unavailable}`
+                        : '今日の復習予定はありません。';
+        }
+    } catch (error) {
+        console.error('[Q-One:Review] 復習予定の取得に失敗:', error);
+        if (dailyReviewStatus) dailyReviewStatus.textContent = `読み込みに失敗しました: ${error.message || error}`;
+        dailyReviewButton.disabled = true;
+    }
+}
+
+async function startDailyReview() {
+    if (!dailyReviewButton || dailyReviewButton.disabled) return;
+    dailyReviewButton.disabled = true;
+    if (dailyReviewStatus) dailyReviewStatus.textContent = '復習問題を準備中…';
+    try {
+        const checkpoint = await getScheduledReviewCheckpoint();
+        if (checkpoint) {
+            startNewPass(checkpoint.questions, true, {
+                mode: 'scheduled_review',
+                resumeIndex: checkpoint.index,
+                range: '中断した復習の続き'
+            });
+            return;
+        }
+        const overview = await getReviewOverview();
+        if (!overview.queue.length) {
+            if (dailyReviewStatus) dailyReviewStatus.textContent = overview.dueTodayCount > 0
+                ? `今日の予定は ${overview.dueTodayCount}問です。期限時刻を過ぎると開始できます。`
+                : '今すぐ復習できる問題はありません。';
+            dailyReviewButton.disabled = true;
+            return;
+        }
+        await saveScheduledReviewCheckpoint(overview.queue, 0);
+        startNewPass(overview.queue, true, { mode: 'scheduled_review', range: '期限超過・今日が期限' });
+    } catch (error) {
+        console.error('[Q-One:Review] 今日の復習開始に失敗:', error);
+        if (dailyReviewStatus) dailyReviewStatus.textContent = `開始できませんでした: ${error.message || error}`;
+        dailyReviewButton.disabled = false;
+    }
+}
+
+listen(dailyReviewButton, 'click', startDailyReview);
 
 // 学習操作
 listen(startBtn, 'click', () => startGame(false));
@@ -137,6 +212,7 @@ listen(homeBtn, 'click', () => {
     if (confirm('最初の画面に戻りますか？\n（入力した問題や設定は保持されます）')) {
         if (state.isInterimReview) endInterimReview(false);
         switchScreen('setup', showIntermediateResults);
+        refreshDailyReviewHome();
     }
 });
 
@@ -166,7 +242,6 @@ listen(profileBtn, 'click', () => openProfileModal().catch(error => {
     console.error('[Q-One:Error] プロフィール表示エラー:', error);
     alert(`プロフィールを読み込めませんでした: ${error.message || error}`);
 }));
-setupModal(profileModal);
 listen(profileNameInput, 'change', event => {
     saveUsername(event.target.value).catch(error => console.error('[Q-One:Error] ユーザー名保存エラー:', error));
 });
@@ -175,8 +250,14 @@ listen(profileNameInput, 'keydown', event => {
 });
 
 // モバイル版：設定スライドイン
-listen(mobileSettingsFab, 'click', () => settingsStack?.classList.add('is-open'));
-listen(closeSettingsBtn, 'click', () => settingsStack?.classList.remove('is-open'));
+listen(mobileSettingsFab, 'click', () => {
+    settingsStack?.classList.add('is-open');
+    closeSettingsBtn?.focus({ preventScroll: true });
+});
+listen(closeSettingsBtn, 'click', () => {
+    settingsStack?.classList.remove('is-open');
+    mobileSettingsFab?.focus({ preventScroll: true });
+});
 document.addEventListener('click', event => {
     const target = event.target;
     if (target instanceof Element && target.closest('.history-retry-actions .retry-action') && window.innerWidth <= 899) {
@@ -185,6 +266,13 @@ document.addEventListener('click', event => {
 });
 listen(startBtn, 'click', () => settingsStack?.classList.remove('is-open'));
 listen(finalCheckBtn, 'click', () => settingsStack?.classList.remove('is-open'));
+
+// 独立したデータ・プライバシー説明画面
+listen(dataInfoOpenButton, 'click', () => {
+    settingsModal?.classList.remove('active');
+    switchScreen('info');
+});
+listen(dataInfoCloseButton, 'click', () => switchScreen('setup'));
 
 // 設定モーダル
 async function loadSettings() {
@@ -198,7 +286,7 @@ async function loadSettings() {
         if (darkModeToggle) darkModeToggle.checked = isDark;
         applyTheme(isDark);
 
-        const fontSize = Number(fontSizeSetting?.value) || 100;
+        const fontSize = Math.min(150, Math.max(75, Number(fontSizeSetting?.value) || 100));
         if (fontSizeSlider) fontSizeSlider.value = String(fontSize);
         if (fontSizeValue) fontSizeValue.textContent = String(fontSize);
         applyFontSize(fontSize);
@@ -219,7 +307,6 @@ function applyFontSize(percent) {
 }
 
 listen(settingsBtn, 'click', () => settingsModal?.classList.add('active'));
-setupModal(settingsModal);
 listen(darkModeToggle, 'change', async event => {
     const isDark = event.target.checked;
     applyTheme(isDark);
@@ -357,8 +444,8 @@ function validateBackup(data) {
         });
     }
 
-    // 旧形式のバックアップにはFSRS状態が含まれていないため、インポート時に現行状態を保持する。
-    Object.defineProperty(normalized, 'preserveExistingFSRS', {
+    // 旧形式のバックアップには復習スケジュール情報が含まれていないため、インポート時に現行状態を保持する。
+    Object.defineProperty(normalized, 'preserveExistingReviewState', {
         value: isLegacy && !Array.isArray(source.fsrs_states),
         enumerable: false
     });
@@ -399,11 +486,11 @@ listen(importDataInput, 'change', async event => {
         const parsed = JSON.parse(await file.text());
         const normalized = validateBackup(parsed);
         const storeCounts = Object.values(normalized).reduce((sum, records) => sum + records.length, 0);
-        const fsrsNotice = normalized.preserveExistingFSRS
-            ? '\n※旧形式のバックアップにFSRS状態がないため、現在の復習スケジュールは保持します。'
+        const reviewStateNotice = normalized.preserveExistingReviewState
+            ? '\n※旧形式のバックアップに復習スケジュール情報がないため、現在の復習スケジュールは保持します。'
             : '';
-        if (!confirm(`バックアップ内の${storeCounts}件のレコードで、現在の全データを置き換えます。よろしいですか？${fsrsNotice}`)) return;
-        if (normalized.preserveExistingFSRS) normalized.fsrs_states = await DB.getAll('fsrs_states');
+        if (!confirm(`バックアップ内の${storeCounts}件のレコードで、現在の全データを置き換えます。よろしいですか？${reviewStateNotice}`)) return;
+        if (normalized.preserveExistingReviewState) normalized.fsrs_states = await DB.getAll('fsrs_states');
         await DB.replaceAllStores(normalized);
         alert('インポートが完了しました。設定を反映するためページを再読み込みします。');
         location.reload();
@@ -433,6 +520,7 @@ if (validateRequiredDOM()) {
     initializeFeature('問題パック管理', initPackManager);
     initializeFeature('苦手分析', initAnalysisModule);
     initializeFeature('学習履歴', initHistoryModule);
+    refreshDailyReviewHome();
     loadSettings();
     screens.setup?.classList.add('visible');
 }

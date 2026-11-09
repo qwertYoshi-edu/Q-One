@@ -2,7 +2,8 @@ export const screens = {
     setup: document.getElementById('setup-screen'),
     main: document.getElementById('main-screen'),
     intermediate: document.getElementById('intermediate-screen'),
-    end: document.getElementById('end-screen')
+    end: document.getElementById('end-screen'),
+    info: document.getElementById('info-screen')
 };
 
 export const mainScreen = document.getElementById('main-screen');
@@ -38,8 +39,8 @@ export const postAnswerButtons = document.getElementById('post-answer-buttons');
 export const nextProblemBtn = document.getElementById('next-problem-btn');
 export const retryCurrentProblemBtn = document.getElementById('retry-current-problem-btn');
 
-export const fsrsRatingContainer = document.getElementById('fsrs-rating-container');
-export const fsrsRatingBtns = document.querySelectorAll('#fsrs-rating-container .btn-fsrs');
+export const reviewRatingContainer = document.getElementById('review-rating-container');
+export const reviewRatingBtns = document.querySelectorAll('#review-rating-container .btn-review-rating');
 
 export const selfGradingContainer = document.getElementById('self-grading-container');
 export const selfGradingInfo = document.getElementById('self-grading-info');

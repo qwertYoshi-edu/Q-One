@@ -26,90 +26,162 @@ export function normalizeAnswer(str) {
 }
 
 // ============================================================================
-// FSRS (Free Spaced Repetition Scheduler) 軽量コアロジック
+// Q-One Simple Interval Scheduler (独自の簡易間隔反復アルゴリズム)
+// FSRSの実装ではない。学習効果の実証を意味するものではない。
 // Rating: 1 = Again, 2 = Hard, 3 = Good, 4 = Easy
 // ============================================================================
-export const FSRS_RATINGS = {
+export const REVIEW_RATINGS = Object.freeze({
     AGAIN: 1,
     HARD: 2,
     GOOD: 3,
     EASY: 4
-};
+});
 
-/**
- * 初期のFSRS状態オブジェクトを生成
- */
-export function createInitialFSRSState(problemKey, packId, questionId, revision = 1) {
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/** 新規問題の復習状態を作成する。 */
+export function createInitialReviewState(problemKey, packId, questionId, revision = 1, now = Date.now()) {
     return {
-        id: problemKey,         // packId + ":" + questionId
+        id: problemKey,
         packId: packId || 'manual_input',
-        questionId: questionId,
-        revision: revision,
-        stability: 0,           // 記憶の定着度（日数に比例）
-        difficulty: 5.0,        // 難易度 (1.0〜10.0)
-        reps: 0,                // 総学習回数
-        lapses: 0,              // Againになった回数
-        state: 0,               // 0: New, 1: Learning, 2: Review
-        lastReview: null,       // 最終復習日時 (timestamp)
-        due: Date.now(),        // 次回復習日時 (timestamp)
-        intervalDays: 0         // 次回までの間隔（日）
+        questionId: questionId || 'unknown',
+        revision: Number.isInteger(revision) && revision > 0 ? revision : 1,
+        difficulty: 5,             // 1 (易しい) ～ 10 (難しい)
+        reps: 0,
+        lapses: 0,
+        state: 0,                  // 0: New, 1: Learning, 2: Review
+        lastReview: null,
+        due: now,
+        intervalDays: 0,
+        lastRating: null,
+        ratingHistory: [],
+        algorithm: 'qone-simple-v1',
+        createdAt: now,
+        updatedAt: now
     };
 }
 
+/** 問題改訂時は旧内容の復習履歴を引き継がず、新しい状態を作る。 */
+export function resolveReviewStateForRevision(previousState, problemKey, packId, questionId, revision = 1, now = Date.now()) {
+    const safeRevision = Number.isInteger(revision) && revision > 0 ? revision : 1;
+    if (!previousState || Number(previousState.revision || 1) !== safeRevision) {
+        return createInitialReviewState(problemKey, packId, questionId, safeRevision, now);
+    }
+    return previousState;
+}
+
 /**
- * 評価をもとに次のFSRS状態を計算
- * @param {Object} prevState 以前のFSRSState
- * @param {number} rating 1 (Again), 2 (Hard), 3 (Good), 4 (Easy)
- * @param {number} now 実行時刻 (Date.now())
+ * 4段階評価に応じた次回復習状態を計算する。
+ *
+ * 初回: Again=10分、Hard=1日、Good=3日、Easy=7日。
+ * 2回目以降: 基準倍率 (0.25 / 1.2 / 2.0 / 2.8) × 難易度係数。
+ * 難易度係数は 1.1 - (difficulty - 1) × 0.02 (0.92～1.10)。
+ * Again は最大でも1日、最低10分。その他は最低1日、最大3650日。
+ * このルールは説明可能性を優先した独自設計であり、FSRSではなく、
+ * 記憶保持率や学習成績を保証・予測するモデルではない。
  */
-export function calculateNextFSRSState(prevState, rating, now = Date.now()) {
-    const state = prevState ? { ...prevState } : createInitialFSRSState();
-    const elapsedDays = state.lastReview ? Math.max(0, (now - state.lastReview) / (1000 * 60 * 60 * 24)) : 0;
-    
-    let { stability, difficulty, reps, lapses } = state;
+export function calculateNextReviewState(previousState, rating, now = Date.now()) {
+    if (![1, 2, 3, 4].includes(Number(rating))) {
+        throw new RangeError(`不正な復習評価です: ${rating}`);
+    }
+    if (!Number.isFinite(now)) throw new TypeError('復習日時は有限の数値で指定してください。');
 
-    // 難易度の更新
-    const difficultyDelta = (rating === FSRS_RATINGS.AGAIN) ? 1.0 : (rating === FSRS_RATINGS.HARD ? 0.5 : (rating === FSRS_RATINGS.EASY ? -0.8 : -0.2));
-    difficulty = Math.min(10.0, Math.max(1.0, difficulty + difficultyDelta));
+    const previous = previousState
+        ? { ...createInitialReviewState(previousState.id, previousState.packId, previousState.questionId, previousState.revision, now), ...previousState }
+        : createInitialReviewState(null, null, null, 1, now);
+    const normalizedRating = Number(rating);
+    const repsBefore = Math.max(0, Number(previous.reps) || 0);
+    const previousInterval = Math.max(0, Number(previous.intervalDays) || 0);
+    let difficulty = Math.min(10, Math.max(1, Number(previous.difficulty) || 5));
+    let intervalDays;
 
-    let nextIntervalDays = 1;
+    const difficultyDelta = {
+        [REVIEW_RATINGS.AGAIN]: 1.0,
+        [REVIEW_RATINGS.HARD]: 0.35,
+        [REVIEW_RATINGS.GOOD]: -0.15,
+        [REVIEW_RATINGS.EASY]: -0.4
+    }[normalizedRating];
+    difficulty = Math.min(10, Math.max(1, difficulty + difficultyDelta));
 
-    if (state.reps === 0) {
-        // 初回学習時
-        switch (rating) {
-            case FSRS_RATINGS.AGAIN: stability = 0.5; nextIntervalDays = 0.1; break; // 2〜3時間後
-            case FSRS_RATINGS.HARD:  stability = 1.0; nextIntervalDays = 1; break;
-            case FSRS_RATINGS.GOOD:  stability = 3.0; nextIntervalDays = 3; break;
-            case FSRS_RATINGS.EASY:  stability = 7.0; nextIntervalDays = 7; break;
-        }
-        state.state = (rating === FSRS_RATINGS.AGAIN) ? 1 : 2;
+    if (repsBefore === 0) {
+        intervalDays = {
+            [REVIEW_RATINGS.AGAIN]: 10 / 1440,
+            [REVIEW_RATINGS.HARD]: 1,
+            [REVIEW_RATINGS.GOOD]: 3,
+            [REVIEW_RATINGS.EASY]: 7
+        }[normalizedRating];
+    } else if (normalizedRating === REVIEW_RATINGS.AGAIN) {
+        intervalDays = Math.max(10 / 1440, Math.min(1, previousInterval * 0.25));
     } else {
-        // 復習時
-        if (rating === FSRS_RATINGS.AGAIN) {
-            lapses += 1;
-            stability = Math.max(0.5, stability * 0.4); // 忘却による安定性低下
-            nextIntervalDays = 0.1;
-            state.state = 1; // 再学習
-        } else {
-            // 正解時：間隔を拡大
-            const hardFactor = (rating === FSRS_RATINGS.HARD) ? 0.8 : (rating === FSRS_RATINGS.EASY ? 1.4 : 1.0);
-            const retrievability = Math.exp(-elapsedDays / Math.max(0.1, stability));
-            stability = stability * (1 + Math.exp(1 - difficulty / 10) * (1 - retrievability) * hardFactor);
-            nextIntervalDays = Math.max(1, Math.round(stability));
-            state.state = 2; // 復習
-        }
+        const multiplier = {
+            [REVIEW_RATINGS.HARD]: 1.2,
+            [REVIEW_RATINGS.GOOD]: 2.0,
+            [REVIEW_RATINGS.EASY]: 2.8
+        }[normalizedRating];
+        const difficultyFactor = 1.1 - (difficulty - 1) * 0.02;
+        intervalDays = Math.min(3650, Math.max(1, previousInterval * multiplier * difficultyFactor));
     }
 
-    reps += 1;
+    const history = Array.isArray(previous.ratingHistory) ? previous.ratingHistory.slice(-19) : [];
+    history.push({ rating: normalizedRating, at: now });
+    const lapses = Math.max(0, Number(previous.lapses) || 0) + (normalizedRating === REVIEW_RATINGS.AGAIN && repsBefore > 0 ? 1 : 0);
+    const roundedInterval = Number(intervalDays.toFixed(4));
 
     return {
-        ...state,
-        stability: parseFloat(stability.toFixed(2)),
-        difficulty: parseFloat(difficulty.toFixed(2)),
-        reps,
+        ...Object.fromEntries(Object.entries(previous).filter(([key]) => key !== 'easeFactor' && key !== 'stability')),
+        difficulty: Number(difficulty.toFixed(2)),
+        reps: repsBefore + 1,
         lapses,
+        state: normalizedRating === REVIEW_RATINGS.AGAIN || repsBefore < 2 ? 1 : 2,
         lastReview: now,
-        intervalDays: nextIntervalDays,
-        due: now + (nextIntervalDays * 24 * 60 * 60 * 1000)
+        intervalDays: roundedInterval,
+        due: now + roundedInterval * DAY_MS,
+        lastRating: normalizedRating,
+        ratingHistory: history,
+        algorithm: 'qone-simple-v1',
+        updatedAt: now
     };
+}
+
+/** 現地時間の今日の開始・翌日開始を返す (DSTの日も暦日で計算)。 */
+export function getLocalDayBounds(now = new Date()) {
+    const date = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+    if (Number.isNaN(date.getTime())) throw new TypeError('日付が不正です。');
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const end = new Date(start.getTime());
+    end.setDate(end.getDate() + 1);
+    return { start: start.getTime(), end: end.getTime() };
+}
+
+/** 保存済みスケジュールを端末の現地日付で分類する。 */
+export function classifyReviewStates(reviewStates, now = new Date(), upcomingDays = 3) {
+    const { start, end } = getLocalDayBounds(now);
+    const nowTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
+    const upcomingEndDate = new Date(end);
+    upcomingEndDate.setDate(upcomingEndDate.getDate() + Math.max(0, upcomingDays));
+    const upcomingEnd = upcomingEndDate.getTime();
+    const valid = (Array.isArray(reviewStates) ? reviewStates : [])
+        .filter(item => item && typeof item.id === 'string' && item.due !== null && item.due !== undefined && Number.isFinite(Number(item.due)))
+        .sort((a, b) => Number(a.due) - Number(b.due));
+    return {
+        // 期限超過は日時で判定する。未来の今日分は表示するが、先取り出題しない。
+        overdue: valid.filter(item => Number(item.due) <= nowTime),
+        dueToday: valid.filter(item => Number(item.due) > nowTime && Number(item.due) < end),
+        upcoming: valid.filter(item => Number(item.due) >= end && Number(item.due) < upcomingEnd),
+        all: valid,
+        dayStart: start,
+        dayEnd: end,
+        upcomingEnd
+    };
+}
+
+/** 定着判定を明示的な条件に限定する。 */
+export function isMasteredReviewState(reviewState) {
+    const history = Array.isArray(reviewState?.ratingHistory) ? reviewState.ratingHistory : [];
+    const lastThree = history.slice(-3);
+    return Number(reviewState?.reps) >= 3 &&
+        Number(reviewState?.intervalDays) >= 7 &&
+        lastThree.length === 3 &&
+        lastThree.every(item => Number(item?.rating) >= REVIEW_RATINGS.GOOD);
 }

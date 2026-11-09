@@ -161,19 +161,21 @@ export async function getAllStores() {
 }
 
 /**
- * 解答ログ・FSRS状態・問題統計・セッション進捗を単一トランザクションで確定する。
+ * 解答ログ・簡易間隔反復状態・問題統計・セッション進捗を単一トランザクションで確定する。
  * answer_logs は add() を使い、同一IDの二重記録を制約違反として検出する。
  */
-export async function commitAnswer({ log, fsrsState = null, problemStat = null, session = null }) {
+export async function commitAnswer({ log, reviewState = null, problemStat = null, session = null, userSetting = null }) {
     await initDB();
     const storeNames = ['answer_logs', 'fsrs_states', 'problem_stats', 'test_sessions'];
+    if (userSetting) storeNames.push('user_settings');
     const tx = dbInstance.transaction(storeNames, 'readwrite');
     const completion = transactionPromise(tx, '解答保存');
 
     try {
         tx.objectStore('answer_logs').add(log);
-        if (fsrsState) tx.objectStore('fsrs_states').put(fsrsState);
+        if (reviewState) tx.objectStore('fsrs_states').put(reviewState);
         if (problemStat) tx.objectStore('problem_stats').put(problemStat);
+        if (userSetting) tx.objectStore('user_settings').put(userSetting);
         if (session) {
             const sessionStore = tx.objectStore('test_sessions');
             const sessionRequest = sessionStore.get(session.id);

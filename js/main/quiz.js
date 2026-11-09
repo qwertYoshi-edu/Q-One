@@ -3,14 +3,15 @@ import {
     screens, mainScreen, views, feedbackContainer, feedbackText, actionBtn, checkButtonContainer,
     addToReviewBtn, modeIndicator, postAnswerButtons, nextProblemBtn, retryCurrentProblemBtn,
     selfGradingContainer, selfGradingInfo, selfGradeCorrectBtn, selfGradeIncorrectBtn,
-    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput, fsrsRatingContainer, fsrsRatingBtns
+    fillRateSlider, selfGradeCheckbox, modeTextRadio, rangeStartInput, rangeEndInput, reviewRatingContainer, reviewRatingBtns
 } from './dom.js';
 
 // 名前衝突を防ぐため「DB」という大文字の変数名でインポート
 import * as DB from './db.js';
 
 import { parseText } from './parser.js';
-import { escapeHtml, normalizeAnswer, FSRS_RATINGS, calculateNextFSRSState, createInitialFSRSState } from './utils.js';
+import { getCheckpointSetting, clearScheduledReviewCheckpoint } from './review.js';
+import { escapeHtml, normalizeAnswer, REVIEW_RATINGS, calculateNextReviewState, createInitialReviewState, resolveReviewStateForRevision } from './utils.js';
 import { resetQuestionUI, switchScreen, updateProgress, updateIncorrectListPanel, showIntermediateResults } from './ui.js';
 
 function screenSwitcher(screenName) {
@@ -164,7 +165,9 @@ export function startNewPass(problems, isReview = false, options = {}) {
     state.isRetryingCurrent = false;
     state.wordList = normalizedProblems;
     state.reviewList = [];
-    state.currentIndex = 0;
+    state.currentIndex = Number.isInteger(options.resumeIndex)
+        ? Math.max(0, Math.min(normalizedProblems.length - 1, options.resumeIndex))
+        : 0;
     state.correctCount = 0;
     state.checkOKCount = 0;
     state.checkReviewCount = 0;
@@ -214,7 +217,8 @@ export function startNewPass(problems, isReview = false, options = {}) {
     };
 
     let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
-    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
+    if (state.currentSessionMode === 'scheduled_review') modeTitle = '今日の復習';
+    else if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
     else if (state.currentSessionMode === 'retry_all' || state.currentSessionMode === 'history_retry') modeTitle = '再挑戦';
     if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
     if (modeIndicator) modeIndicator.textContent = modeTitle;
@@ -290,7 +294,7 @@ export function endInterimReview(resume = true) {
 }
 
 function setAnswerActionsDisabled(disabled) {
-    fsrsRatingBtns.forEach(button => { button.disabled = Boolean(disabled); });
+    reviewRatingBtns.forEach(button => { button.disabled = Boolean(disabled); });
     if (nextProblemBtn) nextProblemBtn.disabled = Boolean(disabled);
     if (retryCurrentProblemBtn) retryCurrentProblemBtn.disabled = Boolean(disabled);
 }
@@ -314,6 +318,9 @@ export function showNextProblem() {
     state.answerLocked = false;
     state.pendingAnswer = null;
     if (state.currentIndex >= state.wordList.length) {
+        if (state.currentSessionMode === 'scheduled_review') {
+            clearScheduledReviewCheckpoint().catch(error => console.error('[Q-One:Review] 復習再開情報の消去に失敗:', error));
+        }
         // 学習セッションを完了状態にする。最終回答の保存が終わってから反映する。
         if (!state.isInterimReview && state.currentSessionId) {
             finalizeCurrentSession().catch(error => console.error('[Q-One:Error] セッション完了処理エラー:', error));
@@ -399,13 +406,20 @@ function setupSelect(problem) {
         const btn = document.createElement('button');
         btn.textContent = optionText;
         btn.className = 'select-option-btn';
-        btn.onclick = (e) => {
-            container.querySelectorAll('button').forEach(b => b.disabled = true);
+        btn.dataset.optionText = optionText;
+        btn.setAttribute('aria-label', `${optionText}を選択`);
+        btn.onclick = () => {
+            if (state.answerLocked) return;
             const isCorrect = (optionText === problem.correctAnswer);
-            container.querySelectorAll('button').forEach(b => {
-                if (b.textContent === problem.correctAnswer) b.classList.add('correct');
+            container.querySelectorAll('button').forEach(candidate => {
+                candidate.disabled = true;
+                const isAnswer = candidate.dataset.optionText === problem.correctAnswer;
+                const isChosen = candidate.dataset.optionText === optionText;
+                if (isAnswer) candidate.classList.add('correct');
+                if (isChosen && !isCorrect) candidate.classList.add('incorrect');
+                const stateLabel = isAnswer ? '正解' : (isChosen ? '選択したが不正解' : '');
+                candidate.setAttribute('aria-label', `${candidate.dataset.optionText}${stateLabel ? `、${stateLabel}` : ''}`);
             });
-            if (!isCorrect) e.target.classList.add('incorrect');
             handleAnswerFeedback(isCorrect, problem.correctAnswer);
         };
         container.appendChild(btn);
@@ -416,6 +430,7 @@ function setupEnter(problem) {
     const input = document.getElementById('enter-input');
     input.value = '';
     input.disabled = false;
+    input.setAttribute('aria-label', '解答を入力');
 
     const handleSubmit = () => {
         input.disabled = true;
@@ -464,6 +479,7 @@ function setupFill(problem) {
                 const input = document.createElement('input');
                 input.className = 'fill-input';
                 input.dataset.answerIndex = index;
+                input.setAttribute('aria-label', `空欄 ${index + 1} の解答`);
                 input.addEventListener('input', () => updateInputWidth(input));
                 contentDiv.appendChild(input);
                 updateInputWidth(input);
@@ -690,6 +706,8 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
         isFinalCheckMode: state.isFinalCheckMode,
         isInterimReview: state.isInterimReview,
         isRetryingCurrent: state.isRetryingCurrent,
+        questionIndex: state.currentIndex,
+        sessionQuestions: state.currentSessionMode === 'scheduled_review' ? JSON.parse(JSON.stringify(state.wordList)) : null,
         sessionReady: state.sessionReady,
         priorSessionResults: new Map(state.sessionAnswerResults || []),
         priorSessionAnswerCount: Number(state.sessionAnswerCount) || 0,
@@ -704,15 +722,15 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
         feedbackContainer.className = `visible ${isCorrect ? 'correct' : 'incorrect'}`;
         actionBtn.classList.remove('visible');
 
-        if (requiresRating && fsrsRatingContainer && fsrsRatingBtns.length > 0) {
+        if (requiresRating && reviewRatingContainer && reviewRatingBtns.length > 0) {
             postAnswerButtons.classList.remove('active');
-            fsrsRatingContainer.classList.add('active');
-            fsrsRatingBtns.forEach(btn => {
+            reviewRatingContainer.classList.add('active');
+            reviewRatingBtns.forEach(btn => {
                 btn.onclick = async () => {
                     const pending = state.pendingAnswer;
                     const rating = Number.parseInt(btn.dataset.rating, 10);
                     if (![1, 2, 3, 4].includes(rating) || !lockPendingAction(pending)) return;
-                    fsrsRatingContainer.classList.remove('active');
+                    reviewRatingContainer.classList.remove('active');
                     try {
                         await finalizePendingAnswer(rating);
                         if (state.pendingAnswer === pending) moveToNextProblem();
@@ -720,13 +738,13 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
                         console.error('[Q-One:Error] 解答保存に失敗:', error);
                         unlockPendingAction(pending);
                         alert(`解答履歴を保存できませんでした。再度お試しください。\n${error.message || error}`);
-                        fsrsRatingContainer.classList.add('active');
+                        reviewRatingContainer.classList.add('active');
                     }
                 };
             });
         } else if (!isCorrect) {
-            if (fsrsRatingContainer) fsrsRatingContainer.classList.remove('active');
-            finalizePendingAnswer(FSRS_RATINGS.AGAIN).catch(error => {
+            if (reviewRatingContainer) reviewRatingContainer.classList.remove('active');
+            finalizePendingAnswer(REVIEW_RATINGS.AGAIN).catch(error => {
                 console.error('[Q-One:Error] 解答保存に失敗:', error);
                 feedbackText.textContent = `履歴保存エラー: ${error.message || error}`;
             });
@@ -735,7 +753,7 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
                 const pending = state.pendingAnswer;
                 if (!lockPendingAction(pending)) return;
                 try {
-                    await finalizePendingAnswer(FSRS_RATINGS.AGAIN);
+                    await finalizePendingAnswer(REVIEW_RATINGS.AGAIN);
                     if (state.pendingAnswer === pending) moveToNextProblem();
                 } catch (error) {
                     unlockPendingAction(pending);
@@ -747,7 +765,7 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
                 const pending = state.pendingAnswer;
                 if (!lockPendingAction(pending)) return;
                 try {
-                    await finalizePendingAnswer(FSRS_RATINGS.AGAIN);
+                    await finalizePendingAnswer(REVIEW_RATINGS.AGAIN);
                     if (state.pendingAnswer === pending) retryCurrentProblem();
                 } catch (error) {
                     unlockPendingAction(pending);
@@ -756,8 +774,8 @@ function handleAnswerFeedback(isCorrect, correctAnswerText) {
                 }
             };
         } else if (requiresRating) {
-            // FSRS UI が欠落している環境でも、正答を未記録のままにしない。
-            finalizePendingAnswer(FSRS_RATINGS.GOOD).then(moveToNextProblem).catch(error => {
+            // 簡易間隔反復 UI が欠落している環境でも、正答を未記録のままにしない。
+            finalizePendingAnswer(REVIEW_RATINGS.GOOD).then(moveToNextProblem).catch(error => {
                 console.error('[Q-One:Error] 解答保存に失敗:', error);
                 alert(`解答履歴を保存できませんでした: ${error.message || error}`);
             });
@@ -787,12 +805,16 @@ async function finalizePendingAnswer(rating) {
     if (pending.recorded) return;
     if (pending.promise) return pending.promise;
 
+    const saveStatus = document.getElementById('answer-save-status');
+    if (saveStatus) saveStatus.textContent = '保存中…';
     const savePromise = persistAnswer(pending, rating);
     pending.promise = savePromise;
     try {
         await savePromise;
         pending.recorded = true;
+        if (saveStatus) saveStatus.textContent = '保存済み';
     } catch (error) {
+        if (saveStatus) saveStatus.textContent = '保存に失敗しました。再試行してください。';
         // 一時的なIndexedDBエラー後に再試行できるよう、失敗Promiseを保持しない。
         if (pending.promise === savePromise) pending.promise = null;
         throw error;
@@ -801,6 +823,7 @@ async function finalizePendingAnswer(rating) {
 
 function getAttemptType(pending) {
     if (pending.isRetryingCurrent) return 'retry_current';
+    if (pending.sessionMode === 'scheduled_review') return 'scheduled_review';
     if (pending.isInterimReview) return 'interim_review';
     if (pending.isFinalCheckMode || pending.sessionMode === 'final_check') return 'final_check';
     if (pending.sessionMode === 'weakness_training') return 'weakness_training';
@@ -836,18 +859,20 @@ async function persistAnswer(pending, rating) {
     const { packId, questionId, problemKey } = getProblemIdentity(problem);
     const attemptType = getAttemptType(pending);
     const answerCategory = problem.type === 'check' && !pending.isFinalCheckMode ? 'check_understanding' : 'graded';
-    const shouldUseFSRS = rating !== null && rating !== undefined && problem.type !== 'check' && !pending.isFinalCheckMode;
+    const shouldUseReviewScheduler = rating !== null && rating !== undefined && problem.type !== 'check' && !pending.isFinalCheckMode;
     const shouldUpdateStats = attemptType === 'initial' && problem.type !== 'check' && !pending.isFinalCheckMode;
 
-    let nextFSRS = null;
-    if (shouldUseFSRS) {
+    let nextReviewState = null;
+    if (shouldUseReviewScheduler) {
         // Version 4 で保存済みの packId:questionId 形式をそのまま引き継ぐ。
         const previous = await DB.get('fsrs_states', problemKey);
-        const current = previous || createInitialFSRSState(problemKey, packId, questionId, problem.revision || 1);
-        nextFSRS = calculateNextFSRSState(current, rating, now);
-        nextFSRS.packId = packId;
-        nextFSRS.questionId = questionId;
-        nextFSRS.revision = problem.revision || 1;
+        const revision = Number.isInteger(problem.revision) && problem.revision > 0 ? problem.revision : 1;
+        // 問題本文が改訂された場合、旧内容への評価履歴を新内容へ引き継がない。
+        const current = resolveReviewStateForRevision(previous, problemKey, packId, questionId, revision, now);
+        nextReviewState = calculateNextReviewState(current, rating, now);
+        nextReviewState.packId = packId;
+        nextReviewState.questionId = questionId;
+        nextReviewState.revision = revision;
     }
 
     let nextStats = null;
@@ -898,7 +923,7 @@ async function persistAnswer(pending, rating) {
         problemId: problem.problemId || questionId,
         revision: problem.revision || 1,
         isCorrect: Boolean(isCorrect),
-        rating: shouldUseFSRS ? rating : null,
+        rating: shouldUseReviewScheduler ? rating : null,
         timeMs,
         userAnswer: null,
         mode: pending.sessionMode,
@@ -924,7 +949,10 @@ async function persistAnswer(pending, rating) {
         updatedAt: now
     } : null;
 
-    await DB.commitAnswer({ log, fsrsState: nextFSRS, problemStat: nextStats, session });
+    const userSetting = pending.sessionMode === 'scheduled_review'
+        ? getCheckpointSetting(pending.sessionQuestions, pending.questionIndex + 1, now)
+        : null;
+    await DB.commitAnswer({ log, reviewState: nextReviewState, problemStat: nextStats, session, userSetting });
     // 保存完了が別セッション開始後に返ってきても、新しいセッションの状態を上書きしない。
     if (state.currentSessionId === pending.sessionId) {
         state.sessionAnswerResults = nextResults;
