@@ -411,87 +411,89 @@ export function drawCustomThumbnail(canvas, side, options = {}) {
 // -------------------------
 // Encode (Generate Video)
 // -------------------------
-function throwIfEncodeCanceled(options) {
-    const canceled = options?.signal?.aborted ||
-        options?.cancelled === true ||
-        (typeof options?.isCanceled === 'function' && options.isCanceled());
-    if (canceled) {
-        const error = new Error('動画生成はキャンセルされました。');
-        error.name = 'AbortError';
-        throw error;
-    }
-}
+export async function encodeToVideo(text, onProgress, options = {}, control = {}) {
+    const isCanceled = typeof control === 'function'
+        ? control
+        : (typeof control.isCanceled === 'function' ? control.isCanceled : () => false);
+    const throwIfCanceled = () => {
+        if (isCanceled()) {
+            const error = new Error('ユーザーによってキャンセルされました。');
+            error.name = 'AbortError';
+            throw error;
+        }
+    };
+    const reportProgress = (ratio, message) => {
+        if (typeof onProgress === 'function') onProgress(ratio, message);
+    };
 
-export async function encodeToVideo(text, onProgress = () => {}, options = {}) {
+    throwIfCanceled();
     if (typeof text !== 'string' || !text.trim()) throw new Error('テキストが空です。');
-    throwIfEncodeCanceled(options);
-    if (!window.qrcode || !window.Mp4Muxer || !('VideoEncoder' in window) || !('VideoFrame' in window)) {
+    if (!window.qrcode || !window.Mp4Muxer || !('VideoEncoder' in window)) {
         throw new Error('必要なライブラリまたはブラウザAPIが不足しています。');
     }
 
-    let videoEncoder = null;
-    let qrCanvas = null;
-    let outputCanvas = null;
+    const meta = {
+        title: options.title || '問題パック',
+        category: options.category || '問題パック',
+        themeColor: options.themeColor || 'blue',
+        count: options.count || 0,
+        createdAt: options.createdAt || Date.now()
+    };
+    const packagedText = packageWithMetadata(text, meta);
+    const textBytes = new TextEncoder().encode(packagedText);
+
+    const cap = getQRCapacity(SETTINGS.version, SETTINGS.ec);
+    const payloadSize = Math.max(0, cap - HEADER_SIZE - SETTINGS.reserve);
+    if (payloadSize <= 0) throw new Error('容量計算エラー。データを格納できません。');
+
+    let encoded = textBytes;
+    let compressed = false;
+    if (SETTINGS.compress) {
+        const compressedResult = await compressBytes(textBytes);
+        encoded = compressedResult.bytes;
+        compressed = compressedResult.compressed;
+        throwIfCanceled();
+    }
+
+    const finalPayload = compressed ? encoded : textBytes;
+    const flags = compressed ? 1 : 0;
+    const totalChunks = Math.ceil(finalPayload.length / payloadSize);
+    if (totalChunks > MAX_DATA_FRAMES && SETTINGS.limit100) {
+        throw new Error(`データが大きすぎます。圧縮後も${totalChunks}フレーム必要です（最大${MAX_DATA_FRAMES}）。`);
+    }
+
+    throwIfCanceled();
+    const hash = await sha256(finalPayload);
+    throwIfCanceled();
+    const transferId = randomTransferId();
+    const packets = [];
+    for (let i = 0; i < totalChunks; i++) {
+        throwIfCanceled();
+        const part = finalPayload.slice(i * payloadSize, Math.min(finalPayload.length, (i + 1) * payloadSize));
+        packets.push(writePacket({ transferId, seq: i, total: totalChunks, originalSize: textBytes.length, encodedSize: finalPayload.length, flags, hash, payload: part }));
+        if (i % 8 === 0) await sleep(0);
+    }
+
+    throwIfCanceled();
+    const qrCanvas = document.createElement('canvas');
+    const qrInfo = drawQRToCanvas(packets[0], qrCanvas);
+    const actualSide = qrInfo.side;
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = outputCanvas.height = actualSide;
+
+    const muxer = new Mp4Muxer.Muxer({
+        target: new Mp4Muxer.ArrayBufferTarget(),
+        video: { codec: 'avc', width: actualSide, height: actualSide },
+        fastStart: 'in-memory'
+    });
+
+    let encoderError = null;
+    const videoEncoder = new VideoEncoder({
+        output: (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+        error: error => { encoderError = error; console.error('[Q-One:Encoder]', error); }
+    });
 
     try {
-        const meta = {
-            title: options.title || '問題パック',
-            category: options.category || '問題パック',
-            themeColor: options.themeColor || 'blue',
-            count: options.count || 0,
-            createdAt: options.createdAt || Date.now()
-        };
-        const packagedText = packageWithMetadata(text, meta);
-        const textBytes = new TextEncoder().encode(packagedText);
-
-        const cap = getQRCapacity(SETTINGS.version, SETTINGS.ec);
-        const payloadSize = Math.max(0, cap - HEADER_SIZE - SETTINGS.reserve);
-        if (payloadSize <= 0) throw new Error('容量計算エラー。データを格納できません。');
-
-        let encoded = textBytes;
-        let compressed = false;
-        if (SETTINGS.compress) {
-            const compressedResult = await compressBytes(textBytes);
-            encoded = compressedResult.bytes;
-            compressed = compressedResult.compressed;
-        }
-        throwIfEncodeCanceled(options);
-
-        const finalPayload = compressed ? encoded : textBytes;
-        const flags = compressed ? 1 : 0;
-        const totalChunks = Math.ceil(finalPayload.length / payloadSize);
-        if (totalChunks < 1) throw new Error('エンコード対象データがありません。');
-        if (totalChunks > MAX_DATA_FRAMES && SETTINGS.limit100) {
-            throw new Error(`データが大きすぎます。圧縮後も${totalChunks}フレーム必要です（最大${MAX_DATA_FRAMES}）。`);
-        }
-
-        const hash = await sha256(finalPayload);
-        throwIfEncodeCanceled(options);
-        const transferId = randomTransferId();
-        const packets = [];
-        for (let i = 0; i < totalChunks; i++) {
-            throwIfEncodeCanceled(options);
-            const part = finalPayload.slice(i * payloadSize, Math.min(finalPayload.length, (i + 1) * payloadSize));
-            packets.push(writePacket({ transferId, seq: i, total: totalChunks, originalSize: textBytes.length, encodedSize: finalPayload.length, flags, hash, payload: part }));
-        }
-
-        qrCanvas = document.createElement('canvas');
-        const qrInfo = drawQRToCanvas(packets[0], qrCanvas);
-        const actualSide = qrInfo.side;
-        outputCanvas = document.createElement('canvas');
-        outputCanvas.width = outputCanvas.height = actualSide;
-
-        const muxer = new Mp4Muxer.Muxer({
-            target: new Mp4Muxer.ArrayBufferTarget(),
-            video: { codec: 'avc', width: actualSide, height: actualSide },
-            fastStart: 'in-memory'
-        });
-
-        let encoderError = null;
-        videoEncoder = new VideoEncoder({
-            output: (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
-            error: error => { encoderError = error; console.error('[Q-One:Encoder]', error); }
-        });
         videoEncoder.configure({
             codec: 'avc1.42001f',
             width: actualSide,
@@ -503,18 +505,19 @@ export async function encodeToVideo(text, onProgress = () => {}, options = {}) {
 
         const totalFrames = 1 + totalChunks;
         const frameDurationMicros = Math.round(1_000_000 / SETTINGS.fps);
+        const outputContext = outputCanvas.getContext('2d');
+        if (!outputContext) throw new Error('動画フレーム用Canvasを初期化できません。');
+
         for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
-            throwIfEncodeCanceled(options);
+            throwIfCanceled();
             if (encoderError) throw encoderError;
 
             if (frameIndex === 0) {
                 drawCustomThumbnail(outputCanvas, actualSide, meta);
             } else {
                 drawQRToCanvas(packets[frameIndex - 1], qrCanvas);
-                const context = outputCanvas.getContext('2d');
-                if (!context) throw new Error('動画フレーム用Canvasを初期化できません。');
-                context.imageSmoothingEnabled = false;
-                context.drawImage(qrCanvas, 0, 0, actualSide, actualSide);
+                outputContext.imageSmoothingEnabled = false;
+                outputContext.drawImage(qrCanvas, 0, 0, actualSide, actualSide);
             }
 
             const timestampMicros = frameIndex * frameDurationMicros;
@@ -526,29 +529,34 @@ export async function encodeToVideo(text, onProgress = () => {}, options = {}) {
             }
 
             if (frameIndex % 5 === 0 || frameIndex === totalFrames - 1) {
-                onProgress((frameIndex + 1) / totalFrames, `エンコード中... ${frameIndex + 1} / ${totalFrames}`);
+                reportProgress((frameIndex + 1) / totalFrames, `エンコード中... ${frameIndex + 1} / ${totalFrames}`);
                 await sleep(0);
-                throwIfEncodeCanceled(options);
             }
         }
 
-        throwIfEncodeCanceled(options);
-        await videoEncoder.flush();
+        throwIfCanceled();
         if (encoderError) throw encoderError;
-        throwIfEncodeCanceled(options);
+        await videoEncoder.flush();
+        throwIfCanceled();
+        if (encoderError) throw encoderError;
 
-        // finalizeは完了した全フレームに対してのみ呼ぶ。キャンセル時は不完全MP4を返さない。
+        // finalize() は正常終了時にのみ呼ぶ。キャンセル時に不完全なMP4は返さない。
         muxer.finalize();
-        const resultBlob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
-        if (!resultBlob.size) throw new Error('MP4ファイルの生成結果が空です。');
-        onProgress(1, 'エンコード完了');
-        return resultBlob;
-    } finally {
-        if (videoEncoder && videoEncoder.state !== 'closed') {
-            try { videoEncoder.close(); } catch (error) { console.warn('[Q-One:Encoder] VideoEncoder解放時の警告:', error); }
+        if (!muxer.target.buffer) throw new Error('MP4の確定に失敗しました。');
+        return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+    } catch (error) {
+        if (isCanceled() && error?.name !== 'AbortError') {
+            const canceled = new Error('ユーザーによってキャンセルされました。');
+            canceled.name = 'AbortError';
+            throw canceled;
         }
-        if (qrCanvas) { qrCanvas.width = 0; qrCanvas.height = 0; }
-        if (outputCanvas) { outputCanvas.width = 0; outputCanvas.height = 0; }
+        throw error;
+    } finally {
+        try {
+            if (videoEncoder.state !== 'closed') videoEncoder.close();
+        } catch (closeError) {
+            console.warn('[Q-One:Encoder] VideoEncoderの解放時にエラー:', closeError);
+        }
     }
 }
 
@@ -594,17 +602,17 @@ function computeFrameSignature(data, width, height) {
     return hash;
 }
 
-export async function decodeFromVideo(file, onProgress = () => {}, isStopped = () => false) {
-    if (typeof isStopped !== 'function') isStopped = () => Boolean(isStopped);
-    if (isStopped()) {
-        const canceled = new Error('動画の読み込みはキャンセルされました。');
-        canceled.name = 'AbortError';
-        throw canceled;
-    }
+export async function decodeFromVideo(file, onProgress, isStopped = () => false) {
+    const throwIfStopped = () => {
+        if (isStopped()) {
+            const error = new Error('ユーザーによってキャンセルされました。');
+            error.name = 'AbortError';
+            throw error;
+        }
+    };
+    throwIfStopped();
     if (!window.MP4Box || !('VideoDecoder' in window)) throw new Error('ブラウザが動画解析に非対応です。');
-
-    let decoder = null;
-    let frameCanvas = null;
+    
     const workerCode = `
         self.importScripts('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
         self.onmessage = function(e) {
@@ -623,60 +631,45 @@ export async function decodeFromVideo(file, onProgress = () => {}, isStopped = (
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     const workerUrl = URL.createObjectURL(blob);
     const concurrency = Math.max(2, Math.min(6, navigator.hardwareConcurrency || 4));
-    const workers = [];
+    const workers = Array.from({ length: concurrency }, () => new Worker(workerUrl));
 
     const chunks = new Map();
     let transferId = null, total = null, originalSize = null, encodedSize = null, flags = null, expectedHash = null;
     let isAllChunksCollected = false;
 
-    let inFlight = 0;
-    let workerError = null;
-    const onWorkerFinished = () => { inFlight = Math.max(0, inFlight - 1); };
-    const waitCapacity = async () => {
-        while (inFlight >= concurrency * 2) {
-            if (isStopped()) throw new DOMException('動画の読み込みはキャンセルされました。', 'AbortError');
-            if (workerError) throw workerError;
-            await sleep(20);
-        }
+    let inFlight = 0, inFlightResolvers = [];
+    const onWorkerFinished = () => {
+        inFlight--;
+        if (inFlightResolvers.length > 0) inFlightResolvers.shift()();
     };
+    const waitCapacity = () => (inFlight < concurrency * 2) ? Promise.resolve() : new Promise(r => inFlightResolvers.push(r));
 
-    try {
-        for (let index = 0; index < concurrency; index++) workers.push(new Worker(workerUrl));
-        workers.forEach(worker => {
-            worker.onmessage = (event) => {
-                onWorkerFinished();
-                try {
-                    if (event.data?.error) throw new Error(event.data.error);
-                    if (event.data?.success && event.data.binaryData) {
-                        const packet = parsePacket(Uint8Array.from(event.data.binaryData));
-                        if (packet) {
-                            if (!transferId) {
-                                transferId = packet.transferId.slice();
-                                total = packet.total;
-                                originalSize = packet.originalSize;
-                                encodedSize = packet.encodedSize;
-                                flags = packet.flags;
-                                expectedHash = packet.hash.slice();
-                            }
-                            if (equalBytes(transferId, packet.transferId) && packet.total === total && equalBytes(packet.hash, expectedHash)) {
-                                if (!chunks.has(packet.seq)) chunks.set(packet.seq, packet.payload.slice());
-                            }
-                        }
+    workers.forEach(w => {
+        w.onmessage = (e) => {
+            onWorkerFinished();
+            if (e.data.success && e.data.binaryData) {
+                const packet = parsePacket(Uint8Array.from(e.data.binaryData));
+                if (packet) {
+                    if (!transferId) {
+                        transferId = packet.transferId.slice(); total = packet.total; originalSize = packet.originalSize;
+                        encodedSize = packet.encodedSize; flags = packet.flags; expectedHash = packet.hash.slice();
                     }
-                    if (total !== null && chunks.size === total) isAllChunksCollected = true;
-                } catch (error) {
-                    workerError = workerError || error;
+                    if (equalBytes(transferId, packet.transferId) && packet.total === total && equalBytes(packet.hash, expectedHash)) {
+                        if (!chunks.has(packet.seq)) chunks.set(packet.seq, packet.payload.slice());
+                    }
                 }
-            };
-            worker.onerror = event => {
-                workerError = event.error || new Error(event.message || 'QR解析Workerでエラーが発生しました。');
-                console.error('[Q-One:QR Worker]', workerError);
-            };
-        });
+            }
+            if (total !== null) {
+                if (chunks.size === total && !isAllChunksCollected) isAllChunksCollected = true;
+            }
+        };
+    });
 
-        onProgress(0, '動画ファイルの読み込み中...');
+    let activeDecoder = null;
+    try {
+        if (typeof onProgress === 'function') onProgress(0, '動画ファイルの読み込み中...');
         const arrayBuffer = await file.arrayBuffer();
-        if (isStopped()) throw new DOMException('動画の読み込みはキャンセルされました。', 'AbortError');
+        throwIfStopped();
         arrayBuffer.fileStart = 0;
 
         const mp4boxfile = MP4Box.createFile();
@@ -691,7 +684,6 @@ export async function decodeFromVideo(file, onProgress = () => {}, isStopped = (
         mp4boxfile.onSamples = (id, ref, samples) => sampleQueue.push(...samples);
         mp4boxfile.appendBuffer(arrayBuffer); mp4boxfile.flush();
         await mp4Ready;
-        if (isStopped()) throw new DOMException('動画の読み込みはキャンセルされました。', 'AbortError');
 
         const videoTrack = fileInfo.videoTracks[0];
         if (!videoTrack) throw new Error('映像が見つかりません。');
@@ -701,9 +693,9 @@ export async function decodeFromVideo(file, onProgress = () => {}, isStopped = (
         const description = getExtradata(mp4boxfile, videoTrack.id);
         if (!description) throw new Error('メタデータ抽出失敗。');
 
-        let frameCtx = null, lastSignature = null, roundRobinIdx = 0, decoderError = null;
+        let frameCanvas = null, frameCtx = null, lastSignature = null, roundRobinIdx = 0, decoderError = null;
 
-        decoder = new VideoDecoder({
+        const decoder = new VideoDecoder({
             output: (videoFrame) => {
                 try {
                     if (isStopped() || isAllChunksCollected) { videoFrame.close(); return; }
@@ -723,23 +715,13 @@ export async function decodeFromVideo(file, onProgress = () => {}, isStopped = (
                     const targetWorker = workers[roundRobinIdx % concurrency];
                     roundRobinIdx++;
                     const buffer = imgData.data.buffer;
-                    try {
-                        targetWorker.postMessage({ id: 0, data: imgData.data, width: frameCanvas.width, height: frameCanvas.height }, [buffer]);
-                    } catch (error) {
-                        // postMessage が失敗した場合も inFlight を戻し、デコード処理を停止させる。
-                        onWorkerFinished();
-                        workerError = error;
-                        throw error;
-                    }
-                } catch (err) {
-                    workerError = workerError || err;
-                    console.error('[Q-One:QR Decode]', err);
-                }
+                    targetWorker.postMessage({ id: 0, data: imgData.data, width: frameCanvas.width, height: frameCanvas.height }, [buffer]);
+                } catch (err) { console.error(err); }
             },
             error: (e) => { decoderError = e; }
         });
+        activeDecoder = decoder;
 
-        if (isStopped()) throw new DOMException('動画の読み込みはキャンセルされました。', 'AbortError');
         decoder.configure({
             codec: videoTrack.codec.startsWith('avc1') ? videoTrack.codec : 'avc1.42001f',
             codedWidth: videoTrack.video.width || videoTrack.track_width,
@@ -748,32 +730,32 @@ export async function decodeFromVideo(file, onProgress = () => {}, isStopped = (
         });
 
         for (let i = 0; i < sampleQueue.length; i++) {
-            if (isStopped()) throw new DOMException('動画の読み込みはキャンセルされました。', 'AbortError');
-            if (isAllChunksCollected) break;
+            if (isStopped() || isAllChunksCollected) break;
             if (decoderError) throw decoderError;
-            if (workerError) throw workerError;
             await waitCapacity();
             const s = sampleQueue[i];
             decoder.decode(new EncodedVideoChunk({ type: s.is_sync ? 'key' : 'delta', timestamp: s.cts, duration: s.duration, data: s.data }));
             
             if (i % 10 === 0) {
                 const ratio = total ? (chunks.size / total * 0.9) : ((i + 1) / sampleQueue.length * 0.4);
-                onProgress(ratio, total ? `QR解析中... ${chunks.size} / ${total}` : '映像を展開中...');
+                if (typeof onProgress === 'function') onProgress(ratio, total ? `QR解析中... ${chunks.size} / ${total}` : '映像を展開中...');
                 await sleep(0);
             }
         }
 
         if (!isStopped() && !isAllChunksCollected) await decoder.flush();
         while (inFlight > 0) {
-            if (isStopped()) throw new DOMException('動画の読み込みはキャンセルされました。', 'AbortError');
-            if (workerError) throw workerError;
-            if (isAllChunksCollected) break;
+            if (isStopped() || isAllChunksCollected) break;
             await sleep(20);
         }
-        if (isStopped()) throw new DOMException('ユーザーによってキャンセルされました。', 'AbortError');
+        if (isStopped()) {
+            const canceled = new Error('ユーザーによってキャンセルされました。');
+            canceled.name = 'AbortError';
+            throw canceled;
+        }
 
         if (total !== null && chunks.size === total) {
-            onProgress(0.95, 'テキストデータを復元中...');
+            if (typeof onProgress === 'function') onProgress(0.95, 'テキストデータを復元中...');
             const joined = new Uint8Array(encodedSize);
             let p = 0;
             for (let i = 0; i < total; i++) {
@@ -793,13 +775,11 @@ export async function decodeFromVideo(file, onProgress = () => {}, isStopped = (
             throw new Error(`必要なデータが不足しています。読み取れたQR: ${chunks.size}/${total||'不明'}`);
         }
     } finally {
-        if (decoder && decoder.state !== 'closed') {
-            try { decoder.close(); } catch (error) { console.warn('[Q-One:Decoder] VideoDecoder解放時の警告:', error); }
+        if (activeDecoder) {
+            try { if (activeDecoder.state !== 'closed') activeDecoder.close(); }
+            catch (error) { console.warn('[Q-One:Decoder] VideoDecoderの解放時にエラー:', error); }
         }
-        if (frameCanvas) { frameCanvas.width = 0; frameCanvas.height = 0; }
-        workers.forEach(worker => {
-            try { worker.terminate(); } catch (error) { console.warn('[Q-One:QR Worker] Worker解放時の警告:', error); }
-        });
+        workers.forEach(worker => worker.terminate());
         URL.revokeObjectURL(workerUrl);
     }
 }
