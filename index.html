@@ -239,6 +239,7 @@
         .nav-item svg { width: 22px; height: 22px; flex-shrink: 0; }
         .panel { display: none; }
         
+        #mode-analysis:checked ~ .input-panels #panel-analysis,
         #mode-text:checked ~ .input-panels #panel-text,
         #mode-file:checked ~ .input-panels #panel-file,
         #mode-pack:checked ~ .input-panels #panel-pack,
@@ -260,6 +261,7 @@
             white-space: nowrap;
         }
         .input-nav .nav-item:hover { color: var(--text-color); }
+        #mode-analysis:checked ~ .input-nav [for="mode-analysis"],
         #mode-text:checked ~ .input-nav [for="mode-text"],
         #mode-file:checked ~ .input-nav [for="mode-file"],
         #mode-pack:checked ~ .input-nav [for="mode-pack"],
@@ -666,6 +668,7 @@
             .input-nav .nav-item { min-width: 0; padding: 1rem .65rem; }
             .input-panels { grid-column: 1; grid-row: 4; min-width: 0; position: relative; min-height: 390px; }
             .panel { display: none; width: 100%; }
+            #mode-analysis:checked ~ .input-panels #panel-analysis,
             #mode-text:checked ~ .input-panels #panel-text,
             #mode-file:checked ~ .input-panels #panel-file,
             #mode-pack:checked ~ .input-panels #panel-pack,
@@ -701,12 +704,14 @@
             .input-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; border: 0; margin: 0 0 1rem; overflow: visible; }
             .input-nav .nav-item { min-width: 0; min-height: 66px; padding: .75rem .55rem; gap: .55rem; justify-content: flex-start; border: 1px solid var(--border-color); border-radius: 12px; margin: 0; white-space: normal; text-align: left; font-size: .9rem; background: var(--card-bg); }
             .input-nav .nav-item svg { width: 20px; height: 20px; }
+            #mode-analysis:checked ~ .input-nav [for="mode-analysis"],
             #mode-text:checked ~ .input-nav [for="mode-text"],
             #mode-file:checked ~ .input-nav [for="mode-file"],
             #mode-pack:checked ~ .input-nav [for="mode-pack"],
             #mode-history:checked ~ .input-nav [for="mode-history"] { border-color: var(--primary-color); background: var(--success-bg); color: var(--tab-active-color); }
             .input-panels { min-width: 0; margin-bottom: 1rem; }
             .panel { display: none; }
+            #mode-analysis:checked ~ .input-panels #panel-analysis,
             #mode-text:checked ~ .input-panels #panel-text,
             #mode-file:checked ~ .input-panels #panel-file,
             #mode-pack:checked ~ .input-panels #panel-pack,
@@ -738,7 +743,7 @@
                         body { padding-bottom: 90px; } /* フローティングボタンが被らないように */
             
             /* 履歴タブ選択時は「設定へ進む」ボタンを隠す */
-            #mode-history:checked ~ #mobile-settings-fab { display: none; }
+            #mode-analysis:checked ~ #mobile-settings-fab, #mode-history:checked ~ #mobile-settings-fab { display: none; }
 
             .mobile-floating-action {
                 position: fixed; bottom: 20px; left: 16px; right: 16px;
@@ -1140,16 +1145,7 @@
         }
         #main-screen.list-open .list-overlay-main { display: block; opacity: 1; pointer-events: auto; }
 
-        /* ==========================================================================
-           Phase 4: card-design.html 完全移植スタイル (design-2 クリーン・アウトライン準拠)
-           ========================================================================== */
-        #mode-analysis:checked ~ .input-panels #panel-analysis { display: block; animation: panel-enter .26s ease both; }
-        #mode-analysis:checked ~ .input-nav [for="mode-analysis"] { border-bottom-color: var(--primary-color); color: var(--primary-color); }
-        @media (max-width: 899px) {
-            #mode-analysis:checked ~ .input-panels #panel-analysis { display: block; animation: mobile-panel-enter .2s ease both; }
-            #mode-analysis:checked ~ .input-nav [for="mode-analysis"] { border-color: var(--primary-color); background: var(--success-bg); color: var(--tab-active-color); }
-            #mode-analysis:checked ~ #mobile-settings-fab { display: none; }
-        }
+        /* ホームタブの表示・選択状態は共通のタブ切り替えルールで管理する。 */
 
         /* mockup: .q-card の完全再現 */
         .q-card {
@@ -1380,70 +1376,56 @@
         .q-card .progress-value { font-size: clamp(22px, 13.5cqi, 25px); line-height: .95; font-weight: 900; letter-spacing: -.065em; color: var(--accent); white-space: nowrap; }
         .q-card .progress-value small { font-size: clamp(8.5px, 5.1cqi, 9.5px); font-weight: 850; letter-spacing: -.04em; color: inherit; }
 
-        /* ==========================================================================
-           Phase 4: ホームタブ (#panel-analysis) の専用スタイル
-           ========================================================================== */
+        /* ホーム画面 */
         .analysis-panel-content { width: 100%; text-align: left; }
-        .analysis-controls {
-            display: flex; justify-content: space-between; align-items: center; gap: 1rem;
-            flex-wrap: wrap; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);
+        .home-panel-title { margin: 0 0 1rem; font-size: 1.12rem; color: var(--text-color); }
+        .growth-stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: .8rem; margin-bottom: 1.4rem;
         }
-        .analysis-filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
-        .filter-item { display: flex; align-items: center; gap: .5rem; font-size: 0.9rem; font-weight: 600; color: var(--secondary-color); }
-        .analysis-select {
-            padding: 0.45rem 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
-            background: var(--card-bg); color: var(--text-color); font-family: inherit; font-size: 0.9rem; outline: none;
+        .growth-card {
+            min-width: 0; padding: 1rem .8rem; border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); background: var(--light-bg); text-align: center;
         }
-        .analysis-train-btn { width: auto; min-height: 42px; padding: 0.6rem 1.4rem; font-size: 0.95rem; }
-        
-        .analysis-summary-badge-row { display: flex; gap: 0.8rem; margin-bottom: 1rem; }
-        .stat-pill {
-            padding: 0.3rem 0.8rem; border-radius: 99px; font-size: 0.82rem; font-weight: 700;
-            display: inline-flex; align-items: center; gap: 0.3rem;
+        .growth-value {
+            margin-bottom: .35rem; color: var(--primary-color); font-size: 1.8rem;
+            font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums;
         }
-        .stat-pill.red { background: var(--danger-bg); color: var(--danger-text-on-bg); border: 1px solid var(--danger-color); }
-        .stat-pill.yellow { background: var(--warning-bg); color: var(--warning-text-on-bg); border: 1px solid var(--warning-border-color); }
-        .stat-pill.green { background: var(--success-bg); color: var(--success-text-on-bg); border: 1px solid var(--success-color); }
-
-        .analysis-card-list {
-            display: flex; flex-direction: column; gap: 0.75rem; max-height: clamp(380px, 50vh, 600px);
-            overflow-y: auto; padding-right: 4px;
+        .growth-label { margin-bottom: .2rem; color: var(--text-color); font-size: .87rem; font-weight: 700; }
+        .growth-sub { color: var(--secondary-color); font-size: .74rem; line-height: 1.45; }
+        .home-weakness-section { margin-top: .2rem; }
+        .home-section-heading {
+            display: flex; justify-content: space-between; align-items: center; gap: .75rem;
+            margin-bottom: .7rem;
         }
+        .home-section-heading h3 { margin: 0; font-size: 1.05rem; }
+        .analysis-train-btn { width: auto; min-height: 38px; padding: .48rem .85rem; font-size: .86rem; }
+        .analysis-card-list { display: flex; flex-direction: column; gap: .65rem; min-width: 0; }
         .analysis-problem-card {
-            background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md);
-            padding: 1rem 1.2rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem;
-            align-items: center; transition: border-color .15s, transform .1s;
+            min-width: 0; padding: .9rem 1rem; border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); background: var(--card-bg);
         }
         .analysis-problem-card:hover { border-color: var(--primary-color); }
         .analysis-card-main { min-width: 0; }
-        .analysis-card-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
-        .analysis-badge {
-            font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 4px;
+        .analysis-card-header { margin-bottom: .35rem; }
+        .analysis-card-evidence { color: var(--secondary-color); font-size: .82rem; font-weight: 600; line-height: 1.5; }
+        .analysis-card-q {
+            margin: 0; color: var(--text-color); font-size: 1rem; font-weight: 650;
+            line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
         }
-        .analysis-badge.danger { background: var(--danger-bg); color: var(--danger-text-on-bg); }
-        .analysis-badge.warning { background: var(--warning-bg); color: var(--warning-text-on-bg); }
-        .analysis-badge.safe { background: var(--success-bg); color: var(--success-text-on-bg); }
-
-        .analysis-card-q { font-size: 1.05rem; font-weight: 700; color: var(--text-color); margin: 0 0 0.3rem; overflow-wrap: anywhere; }
-        .analysis-card-ans { font-size: 0.9rem; color: var(--primary-color); font-weight: 600; }
-        
-        .analysis-card-stats {
-            display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; flex-shrink: 0;
-        }
-        .history-dots { display: flex; gap: 4px; }
-        .dot {
-            width: 12px; height: 12px; border-radius: 50%; display: inline-block;
-            background: var(--dot-bg);
-        }
-        .dot.correct { background: var(--success-color); }
-        .dot.incorrect { background: var(--danger-color); }
-        .analysis-speed-text { font-size: 0.8rem; font-weight: 600; color: var(--secondary-color); }
-
         .analysis-empty-state {
-            padding: 3rem 1rem; text-align: center; color: var(--secondary-color);
-            display: flex; flex-direction: column; align-items: center; gap: 1rem;
+            padding: 1.7rem 1rem; color: var(--secondary-color); text-align: center;
+            border: 1px dashed var(--border-color); border-radius: var(--radius-md);
         }
-        .analysis-empty-state svg { width: 48px; height: 48px; opacity: 0.6; }
+        .analysis-empty-state p { margin: 0; line-height: 1.6; }
+        .home-more-button { display: block; min-height: 38px; margin: .7rem auto 0; padding: .45rem 1.1rem; }
+        .nav-item { position: relative; }
+        .review-notification-dot {
+            position: absolute; top: .42rem; right: .52rem; z-index: 1;
+            width: .55rem; height: .55rem; border: 2px solid var(--card-bg);
+            border-radius: 50%; background: #dc2626; pointer-events: none;
+        }
+        .review-notification-dot[hidden] { display: none; }
 
         /* ==========================================================================
            Phase 4: サムネイル設定モーダル (#pack-thumbnail-modal) の専用スタイル
@@ -1558,183 +1540,7 @@
         .btn-review-rating-easy { border-color: #3B82F6; color: #3B82F6; }
         .btn-review-rating-easy:hover { background: #EFF6FF; }
 
-        /* ===== ホーム・学習管理ダッシュボード用スタイル ===== */
-        .growth-stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-            gap: 0.8rem;
-            margin-bottom: 1.2rem;
-        }
-        .growth-card {
-            background: var(--light-bg);
-            padding: 1rem 0.8rem;
-            border-radius: var(--radius-md);
-            border: 1px solid var(--border-color);
-            text-align: center;
-        }
-        .growth-value {
-            font-size: 1.8rem;
-            font-weight: 800;
-            color: var(--primary-color);
-            line-height: 1;
-            margin-bottom: 0.3rem;
-        }
-        .growth-label {
-            font-size: 0.85rem;
-            font-weight: 700;
-            color: var(--text-color);
-            margin-bottom: 0.2rem;
-        }
-        .growth-sub {
-            font-size: 0.72rem;
-            color: var(--secondary-color);
-        }
-
-        .analytics-subgrid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-bottom: 1.2rem;
-        }
-        @media (max-width: 600px) {
-            .analytics-subgrid { grid-template-columns: 1fr; }
-        }
-        .subgrid-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            padding: 1rem;
-            text-align: left;
-        }
-        .subgrid-title {
-            margin: 0 0 0.8rem;
-            font-size: 0.92rem;
-            font-weight: 700;
-            color: var(--secondary-color);
-        }
-
-        /* カレンダー・ヒートマップ (28セル: 7列×4週) */
-        .calendar-heatmap {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 5px;
-        }
-        .calendar-day-cell {
-            aspect-ratio: 1 / 1;
-            border-radius: 4px;
-            background: var(--light-bg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.68rem;
-            font-weight: 700;
-            color: var(--secondary-color);
-            position: relative;
-        }
-        .calendar-day-cell.level-1 { background: #D1FAE5; color: #065F46; }
-        .calendar-day-cell.level-2 { background: #6EE7B7; color: #064E3B; }
-        .calendar-day-cell.level-3 { background: #10B981; color: white; }
-        [data-theme="dark"] .calendar-day-cell.level-1 { background: #064E3B; color: #A7F3D0; }
-        [data-theme="dark"] .calendar-day-cell.level-2 { background: #047857; color: white; }
-        [data-theme="dark"] .calendar-day-cell.level-3 { background: #10B981; color: white; }
-
-        /* 週次推移リスト */
-        .weekly-stats-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        .weekly-stat-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.85rem;
-            padding: 0.35rem 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-        .weekly-stat-row:last-child { border-bottom: none; }
-        .weekly-stat-rate { font-weight: 700; color: var(--primary-color); }
-
-        /* ===== 第2段階: 復習カード・レスポンシブ・アクセシビリティ調整 ===== */
-        .review-home-card {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1.25rem;
-            min-width: 0;
-            padding: clamp(1rem, 2.5vw, 1.5rem);
-            margin: 0 0 1.35rem;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            background: var(--card-bg);
-            box-shadow: 0 8px 28px rgba(15, 23, 42, .045);
-        }
-        .review-home-main { min-width: 0; flex: 1 1 auto; }
-        .home-nav-item { position: relative; }
-        .review-notification-dot {
-            position: absolute;
-            top: .48rem;
-            right: .62rem;
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #dc2626;
-            pointer-events: none;
-        }
-        .review-notification-dot[hidden] { display: none !important; }
-        .review-home-card { align-items: center; }
-        .review-home-primary { display: flex; align-items: baseline; gap: .55rem; margin-top: .55rem; }
-        .review-home-primary strong { font-size: clamp(1.8rem, 4vw, 2.35rem); line-height: 1.15; font-variant-numeric: tabular-nums; }
-        .review-home-primary span { color: var(--secondary-color); font-size: .88rem; }
-        .review-home-status { margin: .35rem 0 0; line-height: 1.5; }
-        .home-dashboard { display: flex; flex-direction: column; gap: 1.1rem; }
-        .home-dashboard .review-home-card { margin: 0; }
-        .home-weakness-section, .home-week-card {
-            min-width: 0;
-            padding: 1rem 1.1rem;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            background: var(--card-bg);
-        }
-        .home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .8rem; margin-bottom: .8rem; }
-        .home-section-heading h2 { margin: 0; font-size: 1.08rem; }
-        .home-section-description { margin: .25rem 0 0; color: var(--secondary-color); font-size: .82rem; line-height: 1.45; }
-        .home-weakness-list { max-height: none; overflow: visible; padding: 0; }
-        .home-weakness-list .analysis-problem-card[hidden] { display: none !important; }
-        .home-weakness-list .analysis-problem-card { grid-template-columns: minmax(0, 1fr); padding: .85rem 1rem; gap: .35rem; }
-        .home-weakness-list .analysis-card-header { margin-bottom: .25rem; }
-        .home-weakness-list .analysis-card-q { margin: 0; font-size: .98rem; }
-        .home-weakness-list .analysis-card-meta { margin-top: .35rem; }
-        .home-weakness-list .analysis-card-evidence { margin: 0; font-size: .8rem; }
-        .home-expand-btn { width: 100%; margin-top: .75rem; }
-        .home-week-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
-        .home-week-stats > div { display: flex; align-items: baseline; gap: .45rem; padding: .7rem .8rem; border-radius: var(--radius-md); background: var(--light-bg); }
-        .home-week-stats strong { font-size: 1.55rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
-        .home-week-stats span { color: var(--secondary-color); font-size: .84rem; }
-        .home-details { border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--card-bg); overflow: hidden; }
-        .home-details > summary { padding: .9rem 1.1rem; cursor: pointer; color: var(--text-color); font-weight: 650; }
-        .home-details > summary::marker { color: var(--secondary-color); }
-        .home-details-content { padding: .2rem 1rem 1rem; }
-        .home-details .analysis-controls { margin-top: .5rem; }
-        .home-details .analytics-subgrid { margin-bottom: 0; }
-        @media (max-width: 899px) {
-            .review-home-card { flex-direction: column; align-items: stretch; gap: .85rem; }
-            #start-daily-review-btn { width: 100%; }
-            .review-notification-dot { top: .4rem; right: .45rem; }
-        }
-        @media (max-width: 420px) {
-            .home-week-stats { gap: .45rem; }
-            .home-week-stats > div { padding: .6rem; }
-            .home-weakness-section, .home-week-card { padding: .85rem; }
-        }
-        .review-home-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .6rem 1rem; }
-        .review-home-heading h2 { margin: 0; font-size: 1.2rem; }
-        .review-home-status { color: var(--secondary-color); font-size: .88rem; overflow-wrap: anywhere; }
-        #start-daily-review-btn { flex: 0 0 auto; min-width: 170px; min-height: 48px; }
         .answer-save-status { display: inline-block; margin-left: .5rem; font-size: .82rem; font-weight: 600; }
-        .retention-breakdown { margin: .5rem 0 1rem; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: 10px; color: var(--secondary-color); line-height: 1.6; overflow-wrap: anywhere; }
-        .analysis-card-evidence { margin-top: .5rem; color: var(--secondary-color); font-size: .84rem; line-height: 1.55; overflow-wrap: anywhere; }
-        .analysis-card-meta { display: flex; flex-wrap: wrap; gap: .35rem .8rem; color: var(--secondary-color); font-size: .8rem; }
         .sr-only {
             position: absolute !important; width: 1px !important; height: 1px !important;
             padding: 0 !important; margin: -1px !important; overflow: hidden !important;
@@ -1767,7 +1573,6 @@
             .pack-grid .q-card .metric-number { font-size: 1.8rem; }
             .pack-grid .q-card .footer { padding: .6rem .55rem; gap: .3rem; flex-wrap: wrap; }
             .pack-grid .q-card .footer time { overflow-wrap: anywhere; }
-            .analysis-card-list { grid-template-columns: minmax(0, 1fr); }
         }
         .modal-content {
             width: min(92vw, 660px);
@@ -1788,10 +1593,10 @@
         .info-section { padding: 1rem 0; border-top: 1px solid var(--border-color); }
         .info-section h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
         :focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+        #mode-analysis:focus-visible ~ .input-nav label[for="mode-analysis"],
         #mode-text:focus-visible ~ .input-nav label[for="mode-text"],
         #mode-file:focus-visible ~ .input-nav label[for="mode-file"],
         #mode-pack:focus-visible ~ .input-nav label[for="mode-pack"],
-        #mode-analysis:focus-visible ~ .input-nav label[for="mode-analysis"],
         #mode-history:focus-visible ~ .input-nav label[for="mode-history"] {
             outline: 3px solid var(--primary-color); outline-offset: 3px;
         }
@@ -1828,22 +1633,22 @@
     </button>
 </div>
                 </header>
-                <p class="app-description">学習状況を確認し、次に取り組む内容を選べます。</p>
+                <p class="app-description">学習状況を確認し、タブから学習方法を選んでください。</p>
                 <div class="input-section">
                     <!-- ラジオボタンで表示をCSSのみで切り替え -->
+                    <input checked="" id="mode-analysis" name="input_mode" type="radio" class="sr-only" aria-label="ホーム"/>
                     <input id="mode-text" name="input_mode" type="radio" class="sr-only"/>
                     <input id="mode-file" name="input_mode" type="radio" class="sr-only"/>
                     <input id="mode-pack" name="input_mode" type="radio" class="sr-only"/>
-                    <input checked="" id="mode-analysis" name="input_mode" type="radio" class="sr-only"/>
                     <input id="mode-history" name="input_mode" type="radio" class="sr-only"/>
                     
-                    <nav class="input-nav" aria-label="メインメニュー">
-                        <label class="nav-item home-nav-item" for="mode-analysis" aria-describedby="home-review-notification-description">
-                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"></path><path d="M9 21v-6h6v6"></path></svg>
+                    <nav class="input-nav" aria-label="学習メニュー">
+                        <label class="nav-item" for="mode-analysis">
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg>
                             <span>ホーム</span>
-                            <span id="home-review-notification-dot" class="review-notification-dot" aria-hidden="true" hidden></span>
+                            <span class="review-notification-dot" id="home-review-dot" aria-hidden="true" hidden></span>
+                            <span class="sr-only" id="home-review-notice" role="status" aria-live="polite"></span>
                         </label>
-                        <span id="home-review-notification-description" class="sr-only" role="status" aria-live="polite"></span>
                         <label class="nav-item" for="mode-text">
                             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                             <span>テキスト入力</span>
@@ -1859,7 +1664,43 @@
                     </nav>
 
                     <div class="input-panels">
-                        <!-- パネル1: テキストボックス -->
+                        <!-- パネル1: ホーム -->
+                        <div class="panel" id="panel-analysis">
+                            <div class="analysis-panel-content">
+                                <h2 class="home-panel-title">学習の記録</h2>
+                                <div class="growth-stats-grid" aria-label="学習状況">
+                                    <article class="growth-card">
+                                        <div class="growth-value" id="stat-weakness-count">—</div>
+                                        <div class="growth-label">苦手な問題</div>
+                                        <div class="growth-sub">もう一度確認したい問題</div>
+                                    </article>
+                                    <article class="growth-card">
+                                        <div class="growth-value" id="stat-recent-accuracy">—</div>
+                                        <div class="growth-label">最近の正答率</div>
+                                        <div class="growth-sub" id="stat-recent-accuracy-detail">通常学習・直近7日間</div>
+                                    </article>
+                                    <article class="growth-card">
+                                        <div class="growth-value" id="stat-recent-learning-days">—</div>
+                                        <div class="growth-label">学習した日数</div>
+                                        <div class="growth-sub">通常学習・直近7日間</div>
+                                    </article>
+                                </div>
+
+                                <section class="home-weakness-section" aria-labelledby="home-weakness-title">
+                                    <div class="home-section-heading">
+                                        <h3 id="home-weakness-title">確認したい問題</h3>
+                                        <button id="start-weakness-training-btn" class="btn-primary btn-with-icon analysis-train-btn" type="button" hidden>
+                                            <span id="weakness-train-btn-text">苦手問題を復習</span>
+                                        </button>
+                                    </div>
+                                    <div class="analysis-card-list" id="analysis-problem-list" aria-live="polite">
+                                        <div class="analysis-empty-state"><p>問題を解くと、ここに確認したい問題が表示されます。</p></div>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+
+                        <!-- パネル2: テキスト入力 -->
                         <div class="panel" id="panel-text">
                             <textarea id="input-text" placeholder="ここに問題リストを貼り付けます。形式は右上の「?」ボタンで確認できます。"></textarea>
                             <div class="text-actions">
@@ -1871,7 +1712,7 @@
                             </div>
                         </div>
 
-                        <!-- パネル2: 問題パック (mockup HTML design-2 準拠) -->
+                        <!-- パネル3: 問題パック (mockup HTML design-2 準拠) -->
                         <div class="panel" id="panel-pack">
                             <div class="pack-panel-content">
                                 <div aria-label="問題パック一覧" class="pack-grid">
@@ -1933,132 +1774,6 @@
                                     </article>
                                 </div>
                                 <p aria-live="polite" class="pack-file-status" id="pack-file-status" style="display:none"></p>
-                            </div>
-                        </div>
-
-                        <!-- ホーム：復習・確認したい問題・今週の学習 -->
-                        <div class="panel" id="panel-analysis">
-                            <div class="analysis-panel-content home-dashboard">
-                                <section class="review-home-card" aria-labelledby="review-home-title">
-                                    <div class="review-home-main">
-                                        <div class="review-home-heading">
-                                            <h2 id="review-home-title">今日の復習</h2>
-                                        </div>
-                                        <div class="review-home-primary">
-                                            <strong id="review-home-due-count">—</strong>
-                                            <span>今日取り組む問題</span>
-                                        </div>
-                                        <p id="review-home-status" class="review-home-status" role="status" aria-live="polite">復習予定を確認しています。</p>
-                                    </div>
-                                    <button id="start-daily-review-btn" class="btn-primary" type="button" disabled>今日の復習を始める</button>
-                                </section>
-
-                                <section class="home-weakness-section" aria-labelledby="home-weakness-title">
-                                    <div class="home-section-heading">
-                                        <div>
-                                            <h2 id="home-weakness-title">もう一度確認したい問題</h2>
-                                            <p id="home-weakness-summary" class="home-section-description">学習記録を確認しています。</p>
-                                        </div>
-                                    </div>
-                                    <div class="analysis-card-list home-weakness-list" id="analysis-problem-list" aria-live="polite">
-                                        <div class="analysis-empty-state"><p>学習データを読み込んでいます。</p></div>
-                                    </div>
-                                    <button id="toggle-weakness-list-btn" class="btn-secondary home-expand-btn" type="button" aria-expanded="false" aria-controls="analysis-problem-list" hidden>すべての問題を見る</button>
-                                </section>
-
-                                <section class="home-week-card" aria-labelledby="home-week-title">
-                                    <div class="home-section-heading">
-                                        <div>
-                                            <h2 id="home-week-title">今週の学習</h2>
-                                            <p id="home-week-description" class="home-section-description">今週の学習記録を集計しています。</p>
-                                        </div>
-                                    </div>
-                                    <div class="home-week-stats">
-                                        <div><strong id="home-week-problem-count">0</strong><span>問解いた</span></div>
-                                        <div><strong id="home-week-day-count">0</strong><span>日学習した</span></div>
-                                    </div>
-                                </section>
-
-                                <details class="home-details" id="home-analysis-details">
-                                    <summary>学習データを詳しく見る</summary>
-                                    <div class="home-details-content">
-                                        <div class="analysis-controls">
-                                            <div class="analysis-filters">
-                                                <div class="filter-item">
-                                                    <label for="analysis-subject-select">教科</label>
-                                                    <select id="analysis-subject-select" class="analysis-select">
-                                                        <option value="all">すべて</option>
-                                                    </select>
-                                                </div>
-                                                <div class="filter-item">
-                                                    <label for="analysis-pack-select">問題パック</label>
-                                                    <select id="analysis-pack-select" class="analysis-select">
-                                                        <option value="all">すべて</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <button id="start-weakness-training-btn" class="btn-primary btn-with-icon analysis-train-btn" type="button" disabled>
-                                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                                                <span id="weakness-train-btn-text">確認したい問題を解く (0問)</span>
-                                            </button>
-                                        </div>
-
-                                        <div class="growth-stats-grid">
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-mastered-count">0</div>
-                                                <div class="growth-label">定着した問題</div>
-                                                <div class="growth-sub">直近3回の評価などから判定</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-mature-count">0</div>
-                                                <div class="growth-label">復習予定の登録数</div>
-                                                <div class="growth-sub">復習日時が保存された問題</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-first-accuracy">データ不足</div>
-                                                <div class="growth-label">初回の正答率</div>
-                                                <div class="growth-sub" id="stat-first-total">0問中 0問</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-review-accuracy">データ不足</div>
-                                                <div class="growth-label">2回目以降の正答率</div>
-                                                <div class="growth-sub" id="stat-review-total">—</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-review-due-count">0</div>
-                                                <div class="growth-label">今すぐ復習できる問題</div>
-                                                <div class="growth-sub">復習予定時刻を迎えた問題</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-overdue-count">0</div>
-                                                <div class="growth-label">復習予定時刻を迎えた数</div>
-                                                <div class="growth-sub">現在時刻までに予定された問題</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-learning-days-analysis">0</div>
-                                                <div class="growth-label">学習した日数</div>
-                                                <div class="growth-sub">解答記録がある日数</div>
-                                            </div>
-                                            <div class="growth-card">
-                                                <div class="growth-value" id="stat-weakness-count">0</div>
-                                                <div class="growth-label">確認したい問題</div>
-                                                <div class="growth-sub">最近の誤答や正答率から判定</div>
-                                            </div>
-                                        </div>
-                                        <p class="retention-breakdown" id="stat-retention-breakdown" aria-live="polite">学習状況：データ不足</p>
-
-                                        <div class="analytics-subgrid">
-                                            <div class="subgrid-card">
-                                                <h4 class="subgrid-title">学習カレンダー（直近28日）</h4>
-                                                <div class="calendar-heatmap" id="calendar-heatmap-grid"></div>
-                                            </div>
-                                            <div class="subgrid-card">
-                                                <h4 class="subgrid-title">初回正答率の週ごとの推移</h4>
-                                                <div class="weekly-stats-list" id="weekly-stats-list"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </details>
                             </div>
                         </div>
 
