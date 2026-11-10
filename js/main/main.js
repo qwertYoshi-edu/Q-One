@@ -18,7 +18,7 @@ import {
 import { setupModal, switchScreen, showIntermediateResults } from './ui.js';
 import { reconstructProblemString } from './parser.js';
 import { initPackManager } from '../generator/pack-manager.js';
-import { initAnalysisModule } from './analysis.js';
+import { initAnalysisModule, renderAnalysisDashboard } from './analysis.js';
 import { initHistoryModule } from './history.js';
 import * as DB from './db.js';
 import { getReviewOverview, getScheduledReviewCheckpoint, saveScheduledReviewCheckpoint } from './review.js';
@@ -29,8 +29,7 @@ const dailyReviewButton = document.getElementById('start-daily-review-btn');
 const dailyReviewStatus = document.getElementById('review-home-status');
 const dailyReviewDueCount = document.getElementById('review-home-due-count');
 const dailyReviewOverdueCount = document.getElementById('review-home-overdue-count');
-const dailyReviewUpcomingCount = document.getElementById('review-home-upcoming-count');
-const dailyReviewNewCount = document.getElementById('review-home-new-count');
+const dailyReviewSecondary = document.getElementById('review-home-secondary');
 const dataInfoOpenButton = document.getElementById('open-data-info-btn');
 const dataInfoCloseButton = document.getElementById('close-data-info-btn');
 const STORE_KEY_FIELDS = Object.freeze({
@@ -126,9 +125,11 @@ listen(copyIncorrectBtn, 'click', () => {
 });
 listen(copyTextarea, 'click', function() { this.select(); });
 
-// 今日の復習：端末の現地日付で期限を集計し、保存済み問題のみを出題する。
+// 今日の復習予定を更新する。通知ポップアップは使わず、ホーム内の表示だけを更新する。
+let isRefreshingDailyReview = false;
 async function refreshDailyReviewHome() {
-    if (!dailyReviewButton) return;
+    if (!dailyReviewButton || isRefreshingDailyReview) return;
+    isRefreshingDailyReview = true;
     dailyReviewButton.disabled = true;
     if (dailyReviewStatus) dailyReviewStatus.textContent = '復習予定を確認中…';
     try {
@@ -136,26 +137,34 @@ async function refreshDailyReviewHome() {
             getReviewOverview(),
             getScheduledReviewCheckpoint()
         ]);
+        const checkpointRemaining = checkpoint ? Math.max(0, checkpoint.questions.length - checkpoint.index) : 0;
+        const readyCount = checkpoint ? checkpointRemaining : overview.overdueCount;
         if (dailyReviewDueCount) dailyReviewDueCount.textContent = String(overview.todayTargetCount);
-        if (dailyReviewOverdueCount) dailyReviewOverdueCount.textContent = String(overview.overdueCount);
-        if (dailyReviewUpcomingCount) dailyReviewUpcomingCount.textContent = String(overview.upcomingCount);
-        if (dailyReviewNewCount) dailyReviewNewCount.textContent = String(overview.newCount);
+        if (dailyReviewOverdueCount) dailyReviewOverdueCount.textContent = String(readyCount);
+        if (dailyReviewSecondary) {
+            dailyReviewSecondary.textContent = `今後3日以内の予定 ${overview.upcomingCount}問 · 新しい問題 ${overview.newCount}問`;
+        }
         dailyReviewButton.disabled = overview.queue.length === 0 && !checkpoint;
-        dailyReviewButton.textContent = checkpoint ? '復習を続きから再開' : '今日の復習を始める';
+        dailyReviewButton.textContent = checkpoint ? '復習の続きを始める' : '今日の復習を始める';
+
+        const unavailable = overview.unavailableCount > 0
+            ? ` 問題データを確認できない予定が${overview.unavailableCount}件あります。`
+            : '';
         if (dailyReviewStatus) {
-            const unavailable = overview.unavailableCount > 0 ? `（問題データを復元できないもの ${overview.unavailableCount}件）` : '';
             dailyReviewStatus.textContent = checkpoint
-                ? `中断した復習が ${checkpoint.questions.length - checkpoint.index}問 残っています。${unavailable}`
+                ? `中断した復習があと${checkpointRemaining}問あります。${unavailable}`
                 : overview.queue.length > 0
-                    ? `復習可能 ${overview.queue.length}問（今日の予定 ${overview.todayTargetCount}問）${unavailable}`
-                    : overview.dueTodayCount > 0
-                        ? `今日の予定は ${overview.dueTodayCount}問です。復習時刻になると開始できます。${unavailable}`
+                    ? `${overview.queue.length}問を今すぐ復習できます。${unavailable}`
+                    : overview.todayTargetCount > 0
+                        ? `今日の復習予定は${overview.todayTargetCount}問です。復習時刻になると開始できます。${unavailable}`
                         : '今日の復習予定はありません。';
         }
     } catch (error) {
         console.error('[Q-One:Review] 復習予定の取得に失敗:', error);
-        if (dailyReviewStatus) dailyReviewStatus.textContent = `読み込みに失敗しました: ${error.message || error}`;
+        if (dailyReviewStatus) dailyReviewStatus.textContent = '復習予定を読み込めませんでした。ページを再読み込みしてください。';
         dailyReviewButton.disabled = true;
+    } finally {
+        isRefreshingDailyReview = false;
     }
 }
 
@@ -176,13 +185,13 @@ async function startDailyReview() {
         const overview = await getReviewOverview();
         if (!overview.queue.length) {
             if (dailyReviewStatus) dailyReviewStatus.textContent = overview.dueTodayCount > 0
-                ? `今日の予定は ${overview.dueTodayCount}問です。期限時刻を過ぎると開始できます。`
+                ? `今日の復習予定は${overview.dueTodayCount}問です。復習時刻になると開始できます。`
                 : '今すぐ復習できる問題はありません。';
             dailyReviewButton.disabled = true;
             return;
         }
         await saveScheduledReviewCheckpoint(overview.queue, 0);
-        startNewPass(overview.queue, true, { mode: 'scheduled_review', range: '期限超過・今日が期限' });
+        startNewPass(overview.queue, true, { mode: 'scheduled_review', range: '今日の復習' });
     } catch (error) {
         console.error('[Q-One:Review] 今日の復習開始に失敗:', error);
         if (dailyReviewStatus) dailyReviewStatus.textContent = `開始できませんでした: ${error.message || error}`;
@@ -191,6 +200,25 @@ async function startDailyReview() {
 }
 
 listen(dailyReviewButton, 'click', startDailyReview);
+
+function refreshVisibleHomeData() {
+    if (document.visibilityState === 'hidden') return;
+    refreshDailyReviewHome();
+    const analysisMode = document.getElementById('mode-analysis');
+    if (analysisMode?.checked) {
+        renderAnalysisDashboard().catch(error => {
+            console.error('[Q-One:Analysis] 分析画面の更新に失敗:', error);
+        });
+    }
+}
+window.addEventListener('focus', refreshVisibleHomeData);
+window.addEventListener('pageshow', refreshVisibleHomeData);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshVisibleHomeData();
+});
+window.addEventListener('qone:screenchange', event => {
+    if (event.detail?.screenName === 'setup') refreshVisibleHomeData();
+});
 
 // 学習操作
 listen(startBtn, 'click', () => startGame(false));
@@ -212,7 +240,6 @@ listen(homeBtn, 'click', () => {
     if (confirm('最初の画面に戻りますか？\n（入力した問題や設定は保持されます）')) {
         if (state.isInterimReview) endInterimReview(false);
         switchScreen('setup', showIntermediateResults);
-        refreshDailyReviewHome();
     }
 });
 
