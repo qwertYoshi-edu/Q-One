@@ -19,10 +19,10 @@ function getModeLabel(mode) {
     return ({
         normal: '通常学習',
         final_check: '直前チェック',
-        review: '間違えた問題の復習',
+        review: '誤答復習',
         retry_all: '全問再挑戦',
         history_retry: '履歴から再挑戦',
-        weakness_training: '苦手な問題の復習'
+        weakness_training: '苦手克服特訓'
     })[mode] || '学習';
 }
 

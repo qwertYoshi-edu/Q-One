@@ -33,3 +33,25 @@ export function calculateAccuracyPercent(correctCount, totalCount) {
     return Math.round(Math.max(0, correct) / total * 100);
 }
 
+
+/** 今週（月曜始まり）の学習問題数と学習日数をログから集計する。 */
+export function summarizeWeeklyLearning(logs, now = new Date()) {
+    const reference = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+    if (!Number.isFinite(reference.getTime())) return { problemCount: 0, learningDays: 0 };
+
+    const weekStart = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+    const problemKeys = new Set();
+    const learningDays = new Set();
+
+    for (const log of Array.isArray(logs) ? logs : []) {
+        const timestamp = Number(log?.timestamp);
+        if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > reference.getTime()) continue;
+        const date = new Date(timestamp);
+        if (date < weekStart) continue;
+        if (typeof log.problemKey === 'string' && log.problemKey.length > 0) problemKeys.add(log.problemKey);
+        learningDays.add(`${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`);
+    }
+
+    return { problemCount: problemKeys.size, learningDays: learningDays.size };
+}

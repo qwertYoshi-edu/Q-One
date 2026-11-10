@@ -1,7 +1,7 @@
 import * as DB from './db.js';
 import { startNewPass } from './quiz.js';
 import { escapeHtml, classifyReviewStates, isMasteredReviewState } from './utils.js';
-import { summarizeProblemPerformance, calculateAccuracyPercent } from './analysis-metrics.js';
+import { summarizeProblemPerformance, calculateAccuracyPercent, summarizeWeeklyLearning } from './analysis-metrics.js';
 
 const subjectSelect = document.getElementById('analysis-subject-select');
 const packSelect = document.getElementById('analysis-pack-select');
@@ -15,15 +15,17 @@ const statFirstTotal = document.getElementById('stat-first-total');
 const statReviewAccuracy = document.getElementById('stat-review-accuracy');
 const statReviewTotal = document.getElementById('stat-review-total');
 const statReviewDueCount = document.getElementById('stat-review-due-count');
-const statWeaknessNote = document.getElementById('stat-weakness-note');
-const reviewAccuracyCard = document.getElementById('analysis-review-accuracy-card');
-const weaknessSummaryCount = document.getElementById('analysis-weakness-summary-count');
-const showAllWeaknessesButton = document.getElementById('analysis-show-all-btn');
+const statOverdueCount = document.getElementById('stat-overdue-count');
 const statLearningDays = document.getElementById('stat-learning-days-analysis');
 const statWeaknessCount = document.getElementById('stat-weakness-count');
 const statRetentionBreakdown = document.getElementById('stat-retention-breakdown');
 const calendarGrid = document.getElementById('calendar-heatmap-grid');
 const weeklyStatsList = document.getElementById('weekly-stats-list');
+const weaknessSummary = document.getElementById('home-weakness-summary');
+const toggleWeaknessListBtn = document.getElementById('toggle-weakness-list-btn');
+const weekProblemCount = document.getElementById('home-week-problem-count');
+const weekDayCount = document.getElementById('home-week-day-count');
+const weekDescription = document.getElementById('home-week-description');
 
 let currentWeaknessProblems = [];
 let showAllWeaknesses = false;
@@ -185,7 +187,8 @@ export async function renderAnalysisDashboard() {
         const logsByProblem = groupLogsByProblem(filteredLogs);
         const targetReviewStates = (reviewStates || []).filter(item => targetPackIds.has(item.packId) && item.due !== null && item.due !== undefined && Number.isFinite(Number(item.due)));
         const reviewBuckets = classifyReviewStates(targetReviewStates, new Date(), 3);
-        
+        const reviewStateMap = new Map(targetReviewStates.map(item => [item.id, item]));
+
         let firstCorrect = 0;
         let firstTotal = 0;
         let reviewCorrect = 0;
@@ -207,26 +210,40 @@ export async function renderAnalysisDashboard() {
                 if (Number.isFinite(log.timestamp) && log.timestamp > 0) activeLearningDates.add(localDateKey(new Date(log.timestamp)));
             }
 
-            // 弱点は解答ログに基づいて判定し、期限・間隔は復習対象側に分離する。
+            // 確認したい問題は解答ログに基づいて判定し、復習時刻・間隔はスケジュール側で管理する。
             if (performance.isWeak) {
                 const latestLog = learningLogs[learningLogs.length - 1];
                 const problem = resolveProblemFromHistory(latestLog, sessionsById, packsById, statsByKey);
                 if (problem?.type && problem.largeText !== undefined) {
-                    const reasons = [];
-                    if (performance.hasRecentMistake) reasons.push('最近の解答で間違えた');
-                    if (performance.isLowAccuracy) reasons.push(`正答率 ${Math.round(performance.accuracy * 100)}%`);
-                    const latestMistake = [...performance.recentLogs].reverse().find(log => !log.isCorrect);
+                    const schedule = reviewStateMap.get(problemKey);
+                    const latestAttemptAt = Number(learningLogs[learningLogs.length - 1]?.timestamp) || 0;
+                    const accuracy = Math.round(performance.accuracy * 100);
+                    const weaknessReason = performance.hasRecentMistake
+                        ? '最近間違えた問題'
+                        : performance.isLowAccuracy
+                            ? '正解できた回数が少ない'
+                            : 'もう一度確認';
+                    const reviewDue = Number(schedule?.due);
+                    const ageDays = latestAttemptAt > 0 ? Math.max(0, (Date.now() - latestAttemptAt) / 86400000) : 30;
+                    const priorityScore =
+                        (Number.isFinite(reviewDue) && reviewDue <= Date.now() ? 4 : 0) +
+                        (performance.hasRecentMistake ? 3 : 0) +
+                        (performance.isLowAccuracy ? 2 : 0) +
+                        Math.max(0, 1 - ageDays / 30);
                     currentWeaknessProblems.push({
                         ...problem,
                         packId: latestLog.packId,
                         questionId: latestLog.questionId,
                         problemKey,
-                        weaknessReason: reasons.join(' · '),
-                        accuracy: Math.round(performance.accuracy * 100),
+                        weaknessReason,
+                        accuracy,
                         correctCount: performance.correctCount,
                         attemptCount: learningLogs.length,
-                        lastAnsweredAt: latestLog.timestamp,
-                        lastMistakeAt: latestMistake?.timestamp || 0,
+                        hasRecentMistake: performance.hasRecentMistake,
+                        isLowAccuracy: performance.isLowAccuracy,
+                        latestAttemptAt,
+                        reviewDue: Number.isFinite(reviewDue) ? reviewDue : null,
+                        priorityScore,
                         recentHistory: performance.recentLogs.map(log => ({ isCorrect: log.isCorrect, rating: log.rating, timestamp: log.timestamp }))
                     });
                 }
@@ -234,9 +251,9 @@ export async function renderAnalysisDashboard() {
         });
 
         currentWeaknessProblems.sort((a, b) =>
-            (Number(b.lastMistakeAt) || 0) - (Number(a.lastMistakeAt) || 0) ||
-            (Number(a.accuracy) || 0) - (Number(b.accuracy) || 0) ||
-            (Number(b.lastAnsweredAt) || 0) - (Number(a.lastAnsweredAt) || 0)
+            (b.priorityScore - a.priorityScore) ||
+            (a.accuracy - b.accuracy) ||
+            (b.latestAttemptAt - a.latestAttemptAt)
         );
 
         const masteredCount = targetReviewStates.filter(isMasteredReviewState).length;
@@ -262,38 +279,53 @@ export async function renderAnalysisDashboard() {
         const scheduledKeys = new Set(targetReviewStates.map(item => item.id));
         const newScheduleCount = [...knownProblemKeys].filter(key => !scheduledKeys.has(key)).length;
 
-        const hasLearningRecords = firstTotal > 0;
         if (statMasteredCount) statMasteredCount.textContent = String(masteredCount);
         if (statMatureCount) statMatureCount.textContent = String(targetReviewStates.length);
-        if (statFirstAccuracy) statFirstAccuracy.textContent = firstTotal > 0 ? `${calculateAccuracyPercent(firstCorrect, firstTotal)}%` : '—';
-        if (statFirstTotal) statFirstTotal.textContent = firstTotal > 0 ? `${firstTotal}問中 ${firstCorrect}問正解` : '記録が増えると表示されます';
-        if (statReviewAccuracy) statReviewAccuracy.textContent = reviewTotal > 0 ? `${calculateAccuracyPercent(reviewCorrect, reviewTotal)}%` : '—';
-        if (statReviewTotal) statReviewTotal.textContent = reviewTotal > 0 ? `${reviewTotal}回中 ${reviewCorrect}回正解` : '記録がありません';
-        if (reviewAccuracyCard) reviewAccuracyCard.hidden = reviewTotal < 3;
-        if (statReviewDueCount) statReviewDueCount.textContent = String(reviewBuckets.overdue.length);
-        if (statLearningDays) statLearningDays.textContent = hasLearningRecords ? String(activeLearningDates.size) : '—';
-        if (statWeaknessCount) statWeaknessCount.textContent = hasLearningRecords ? String(currentWeaknessProblems.length) : '—';
-        if (statWeaknessNote) statWeaknessNote.textContent = hasLearningRecords
-            ? (currentWeaknessProblems.length ? 'もう一度確認したい問題' : '今のところ苦手な問題はありません')
-            : '記録が増えると表示されます';
+        if (statFirstAccuracy) statFirstAccuracy.textContent = firstTotal > 0 ? `${calculateAccuracyPercent(firstCorrect, firstTotal)}%` : 'データ不足';
+        if (statFirstTotal) statFirstTotal.textContent = firstTotal > 0 ? `${firstTotal}問中 ${firstCorrect}問` : '初回解答ログなし';
+        if (statReviewAccuracy) statReviewAccuracy.textContent = reviewTotal > 0 ? `${calculateAccuracyPercent(reviewCorrect, reviewTotal)}%` : 'データ不足';
+        if (statReviewTotal) statReviewTotal.textContent = reviewTotal > 0 ? `${reviewTotal}回中 ${reviewCorrect}回` : '復習解答ログなし';
+        if (statReviewDueCount) statReviewDueCount.textContent = String(reviewBuckets.overdue.length + reviewBuckets.dueToday.length);
+        if (statOverdueCount) statOverdueCount.textContent = String(reviewBuckets.overdue.length);
+        if (statLearningDays) statLearningDays.textContent = String(activeLearningDates.size);
+        if (statWeaknessCount) statWeaknessCount.textContent = String(currentWeaknessProblems.length);
         if (statRetentionBreakdown) {
-            statRetentionBreakdown.textContent = hasLearningRecords
-                ? `学習状況：新しい問題 ${newScheduleCount}問 · 学習中 ${learningCount}問 · 復習中 ${reviewCount}問 · よく覚えた問題 ${masteredCount}問`
-                : '学習記録が増えると、問題の定着状況を確認できます。';
+            statRetentionBreakdown.textContent = `定着度：新規 ${newScheduleCount}問 ／ 学習中 ${learningCount}問 ／ 復習中 ${reviewCount}問 ／ 定着済み ${masteredCount}問`;
         }
-        if (weaknessSummaryCount) weaknessSummaryCount.textContent = hasLearningRecords ? `${currentWeaknessProblems.length}問` : '記録なし';
 
         const learningActivityLogs = filteredLogs.filter(log => isAnalysisLearningLog(log, sessionsById));
         renderCalendarHeatmap(learningActivityLogs);
         renderWeeklyStats(learningActivityLogs);
-        showAllWeaknesses = false;
+        renderHomeWeekSummary(learningActivityLogs);
         renderWeaknessList(currentWeaknessProblems);
     } catch (error) {
         console.error('[Q-One:Error] ダッシュボード集計エラー:', error);
         if (problemListContainer) {
-            problemListContainer.innerHTML = `<div class="analysis-empty-state"><p>分析データを読み込めませんでした。</p><p>${escapeHtml(error.message || String(error))}</p></div>`;
+            problemListContainer.innerHTML = `<div class="analysis-empty-state"><p>学習データを読み込めませんでした。</p></div>`;
         }
+        if (weaknessSummary) weaknessSummary.textContent = '学習記録を読み込めませんでした。';
+        if (weekDescription) weekDescription.textContent = '学習記録を読み込めませんでした。';
+        if (toggleWeaknessListBtn) toggleWeaknessListBtn.hidden = true;
         if (trainBtn) trainBtn.disabled = true;
+    }
+}
+
+function formatReviewInterval(daysValue) {
+    const days = Number(daysValue) || 0;
+    if (days < 1) return `${Math.max(1, Math.round(days * 24 * 60))}分`;
+    if (days < 2) return `${Math.round(days * 24)}時間`;
+    return `${Number(days.toFixed(1))}日`;
+}
+
+function renderHomeWeekSummary(logs) {
+    if (!weekProblemCount || !weekDayCount) return;
+    const summary = summarizeWeeklyLearning(logs, new Date());
+    weekProblemCount.textContent = String(summary.problemCount);
+    weekDayCount.textContent = String(summary.learningDays);
+    if (weekDescription) {
+        weekDescription.textContent = summary.problemCount === 0
+            ? '今週の学習記録はまだありません。'
+            : `今週は ${summary.learningDays} 日学習し、${summary.problemCount} 問に取り組みました。`;
     }
 }
 
@@ -354,14 +386,14 @@ function renderWeeklyStats(logs) {
         }
     }
     for (const week of weeks) {
-        const rate = week.firstTotal > 0 ? `${calculateAccuracyPercent(week.firstCorrect, week.firstTotal)}%` : '—';
+        const rate = week.firstTotal > 0 ? `${calculateAccuracyPercent(week.firstCorrect, week.firstTotal)}%` : 'データ不足';
         const row = document.createElement('div');
         row.className = 'weekly-stat-row';
         const label = document.createElement('span');
-        label.textContent = `${week.label} · ${week.total > 0 ? `${week.total}回解答` : '記録なし'}`;
+        label.textContent = `${week.label} · ${week.total}回学習`;
         const value = document.createElement('span');
         value.className = 'weekly-stat-rate';
-        value.textContent = week.firstTotal > 0 ? `初回 ${rate}` : '—';
+        value.textContent = `初回 ${rate}`;
         row.append(label, value);
         weeklyStatsList.appendChild(row);
     }
@@ -370,69 +402,84 @@ function renderWeeklyStats(logs) {
 function renderWeaknessList(problems) {
     if (!problemListContainer) return;
     problemListContainer.replaceChildren();
+    showAllWeaknesses = false;
+
     if (problems.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'analysis-empty-state';
         const message = document.createElement('p');
-        message.textContent = '今のところ、苦手な問題はありません。';
+        message.textContent = '今のところ、優先して確認する問題はありません。';
         empty.appendChild(message);
         problemListContainer.appendChild(empty);
+        if (weaknessSummary) weaknessSummary.textContent = '最近の解答記録から、確認したい問題は見つかりませんでした。';
+        if (toggleWeaknessListBtn) toggleWeaknessListBtn.hidden = true;
         if (trainBtn) trainBtn.disabled = true;
-        if (trainBtnText) trainBtnText.textContent = '苦手な問題を復習 (0問)';
-        if (showAllWeaknessesButton) showAllWeaknessesButton.hidden = true;
+        if (trainBtnText) trainBtnText.textContent = '確認したい問題を解く (0問)';
         return;
     }
 
-    const visibleProblems = showAllWeaknesses ? problems : problems.slice(0, 3);
-    for (const problem of visibleProblems) {
+    problems.forEach((problem, index) => {
         const element = document.createElement('article');
         element.className = 'analysis-problem-card';
-        const answer = problem.correctAnswer || problem.smallText || problem.answers?.join(', ') || '—';
-        element.innerHTML = `
-            <div class="analysis-card-main">
-                <div class="analysis-card-header">
-                    <span class="analysis-badge danger">復習したい</span>
-                    <span class="analysis-card-evidence">${escapeHtml(problem.weaknessReason || '解答履歴から判定')}</span>
-                </div>
-                <p class="analysis-card-q">${escapeHtml(problem.largeText || '問題文')}</p>
-                <div class="analysis-card-ans">正解：${escapeHtml(answer)}</div>
-                <div class="analysis-card-meta">解答 ${Number(problem.attemptCount) || 0}回 · 正解 ${Number(problem.correctCount) || 0}回</div>
-            </div>
-            <button class="btn-secondary analysis-problem-action" type="button" data-weakness-index="${problems.indexOf(problem)}">この問題を復習</button>`;
-        problemListContainer.appendChild(element);
-    }
+        element.hidden = index >= 3;
 
-    const hasMore = problems.length > 3;
-    if (showAllWeaknessesButton) {
-        showAllWeaknessesButton.hidden = !hasMore;
-        showAllWeaknessesButton.setAttribute('aria-expanded', String(showAllWeaknesses));
-        showAllWeaknessesButton.textContent = showAllWeaknesses ? '表示を3問に戻す' : `すべて表示（${problems.length}問）`;
+        const main = document.createElement('div');
+        main.className = 'analysis-card-main';
+        const header = document.createElement('div');
+        header.className = 'analysis-card-header';
+        const badge = document.createElement('span');
+        badge.className = 'analysis-badge danger';
+        badge.textContent = '確認したい';
+        const reason = document.createElement('span');
+        reason.className = 'analysis-card-evidence';
+        reason.textContent = problem.weaknessReason || 'もう一度確認';
+        header.append(badge, reason);
+
+        const question = document.createElement('div');
+        question.className = 'analysis-card-q';
+        question.textContent = problem.largeText || '問題文を表示できません。';
+        const meta = document.createElement('div');
+        meta.className = 'analysis-card-meta';
+        meta.textContent = `正答率 ${Number.isFinite(Number(problem.accuracy)) ? `${problem.accuracy}%` : 'データ不足'}`;
+        main.append(header, question, meta);
+        element.appendChild(main);
+        problemListContainer.appendChild(element);
+    });
+
+    if (weaknessSummary) weaknessSummary.textContent = `${problems.length} 問あります。優先度の高い問題から表示しています。`;
+    if (toggleWeaknessListBtn) {
+        toggleWeaknessListBtn.hidden = problems.length <= 3;
+        toggleWeaknessListBtn.textContent = `すべての問題を見る（${problems.length}問）`;
+        toggleWeaknessListBtn.setAttribute('aria-expanded', 'false');
     }
     if (trainBtn) trainBtn.disabled = false;
-    if (trainBtnText) trainBtnText.textContent = `苦手な問題を復習 (${problems.length}問)`;
+    if (trainBtnText) trainBtnText.textContent = `確認したい問題を解く (${problems.length}問)`;
 }
 
 function renderEmptyState() {
     if (statMasteredCount) statMasteredCount.textContent = '0';
     if (statMatureCount) statMatureCount.textContent = '0';
-    if (statFirstAccuracy) statFirstAccuracy.textContent = '—';
-    if (statFirstTotal) statFirstTotal.textContent = '記録が増えると表示されます';
-    if (statReviewAccuracy) statReviewAccuracy.textContent = '—';
-    if (statReviewTotal) statReviewTotal.textContent = '記録がありません';
+    if (statFirstAccuracy) statFirstAccuracy.textContent = 'データ不足';
+    if (statFirstTotal) statFirstTotal.textContent = '0問中 0問';
+    if (statReviewAccuracy) statReviewAccuracy.textContent = 'データ不足';
+    if (statReviewTotal) statReviewTotal.textContent = '復習解答ログなし';
     if (statReviewDueCount) statReviewDueCount.textContent = '0';
-    if (reviewAccuracyCard) reviewAccuracyCard.hidden = true;
-    if (statWeaknessNote) statWeaknessNote.textContent = '記録が増えると表示されます';
-    if (weaknessSummaryCount) weaknessSummaryCount.textContent = '記録なし';
-    if (statLearningDays) statLearningDays.textContent = '—';
-    if (statWeaknessCount) statWeaknessCount.textContent = '—';
-    if (statRetentionBreakdown) statRetentionBreakdown.textContent = '学習記録が増えると、問題の定着状況を確認できます。';
+    if (statOverdueCount) statOverdueCount.textContent = '0';
+    if (statLearningDays) statLearningDays.textContent = '0';
+    if (statWeaknessCount) statWeaknessCount.textContent = '0';
+    if (statRetentionBreakdown) statRetentionBreakdown.textContent = '定着度：データ不足';
     if (weeklyStatsList) weeklyStatsList.innerHTML = '';
     if (calendarGrid) calendarGrid.innerHTML = '';
+    if (weekProblemCount) weekProblemCount.textContent = '0';
+    if (weekDayCount) weekDayCount.textContent = '0';
+    if (weekDescription) weekDescription.textContent = '今週の学習記録はまだありません。';
+    if (weaknessSummary) weaknessSummary.textContent = '問題を解くと、もう一度確認したい問題がここに表示されます。';
+    if (toggleWeaknessListBtn) toggleWeaknessListBtn.hidden = true;
     if (problemListContainer) {
-        problemListContainer.innerHTML = '<div class="analysis-empty-state"><p>学習データがまだありません。問題を解くと分析が反映されます。</p></div>';
+        problemListContainer.innerHTML = '<div class="analysis-empty-state"><p>学習データがまだありません。問題を解くと、ここに表示されます。</p></div>';
     }
     if (trainBtn) trainBtn.disabled = true;
-    if (trainBtnText) trainBtnText.textContent = '苦手な問題を復習 (0問)';
+    if (trainBtnText) trainBtnText.textContent = '確認したい問題を解く (0問)';
 }
 
 function updateFilterSelects(packs) {
@@ -457,20 +504,16 @@ function updateFilterSelects(packs) {
 export function initAnalysisModule() {
     if (subjectSelect) subjectSelect.addEventListener('change', renderAnalysisDashboard);
     if (packSelect) packSelect.addEventListener('change', renderAnalysisDashboard);
-    if (showAllWeaknessesButton) {
-        showAllWeaknessesButton.addEventListener('click', () => {
-            showAllWeaknesses = !showAllWeaknesses;
-            renderWeaknessList(currentWeaknessProblems);
-        });
-    }
-    if (problemListContainer) {
-        problemListContainer.addEventListener('click', event => {
-            const button = event.target instanceof Element ? event.target.closest('[data-weakness-index]') : null;
-            if (!button) return;
-            const index = Number(button.dataset.weaknessIndex);
-            const problem = currentWeaknessProblems[index];
-            if (!problem) return;
-            startNewPass([problem], false, { mode: 'weakness_training' });
+    if (toggleWeaknessListBtn) {
+        toggleWeaknessListBtn.addEventListener('click', () => {
+            const shouldExpand = !showAllWeaknesses;
+            showAllWeaknesses = shouldExpand;
+            const cards = problemListContainer?.querySelectorAll('.analysis-problem-card') || [];
+            cards.forEach((card, index) => { card.hidden = !shouldExpand && index >= 3; });
+            toggleWeaknessListBtn.setAttribute('aria-expanded', String(shouldExpand));
+            toggleWeaknessListBtn.textContent = shouldExpand
+                ? '一部だけ表示'
+                : `すべての問題を見る（${currentWeaknessProblems.length}問）`;
         });
     }
     if (trainBtn) {
@@ -479,8 +522,5 @@ export function initAnalysisModule() {
             startNewPass(currentWeaknessProblems, false, { mode: 'weakness_training' });
         });
     }
-    const analysisRadio = document.getElementById('mode-analysis');
-    if (analysisRadio) analysisRadio.addEventListener('change', () => {
-        if (analysisRadio.checked) renderAnalysisDashboard();
-    });
+    if (document.getElementById('mode-analysis')?.checked) renderAnalysisDashboard();
 }

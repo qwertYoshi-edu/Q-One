@@ -76,29 +76,21 @@ async function loadStatistics() {
     const checkLogs = [...checkBySessionProblem.values()];
     const checkCorrect = checkLogs.filter(log => log.isCorrect === true || log.isCorrect === 1).length;
 
-    const hasLearningRecords = totals.answered > 0;
-    const correctRate = hasLearningRecords ? Math.round(totals.correct / totals.answered * 100) : null;
-    if (statTotalQuestions) statTotalQuestions.textContent = hasLearningRecords ? String(totals.answered) : '—';
-    if (statCorrectRate) statCorrectRate.textContent = correctRate === null ? '—' : `${correctRate}%`;
-    if (statLearningDays) statLearningDays.textContent = hasLearningRecords && totals.days.size > 0 ? String(totals.days.size) : '—';
+    const correctRate = totals.answered > 0 ? Math.round(totals.correct / totals.answered * 100) : 0;
+    if (statTotalQuestions) statTotalQuestions.textContent = String(totals.answered);
+    if (statCorrectRate) statCorrectRate.textContent = `${correctRate}%`;
+    if (statLearningDays) statLearningDays.textContent = String(totals.days.size);
 
     const breakdown = document.getElementById('stat-mode-breakdown');
     if (breakdown) {
-        if (!hasLearningRecords) {
-            breakdown.textContent = '学習記録が増えると表示されます。';
-        } else {
-            const format = (label, data) => `${label} ${data.answered}問・${data.correct}問正解`;
-            const checkSummary = checkLogs.length > 0
-                ? `確認型問題の理解度 ${checkCorrect}/${checkLogs.length}問`
-                : '確認型問題の記録なし';
-            breakdown.textContent = [
-                format('通常学習', totals.normal),
-                format('直前チェック', totals.final_check),
-                format('間違えた問題の復習', totals.review),
-                format('再挑戦', totals.retry),
-                format('苦手な問題の復習', totals.weakness_training),
-                checkSummary
-            ].join(' / ');
-        }
+        const format = (label, data) => `${label} ${data.answered}問・${data.correct}問正解`;
+        breakdown.textContent = [
+            format('通常学習', totals.normal),
+            format('直前チェック', totals.final_check),
+            format('誤答復習', totals.review),
+            format('再挑戦', totals.retry),
+            format('苦手特訓', totals.weakness_training),
+            `確認型問題の理解度 ${checkCorrect}/${checkLogs.length}問`
+        ].join(' / ');
     }
 }

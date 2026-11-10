@@ -13,6 +13,37 @@ export const STORE_SCHEMAS = Object.freeze([
 let dbInstance = null;
 let dbInitPromise = null;
 
+const DATA_CHANGE_EVENT = 'qone:data-changed';
+const DATA_CHANNEL_NAME = 'qone-db-sync';
+const TAB_INSTANCE_ID = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let dataChannel = null;
+
+if (typeof window !== 'undefined' && typeof BroadcastChannel === 'function') {
+    try {
+        dataChannel = new BroadcastChannel(DATA_CHANNEL_NAME);
+        dataChannel.addEventListener('message', event => {
+            const detail = event.data;
+            if (!detail || detail.sourceId === TAB_INSTANCE_ID || !Array.isArray(detail.stores)) return;
+            document.dispatchEvent(new CustomEvent(DATA_CHANGE_EVENT, {
+                detail: { stores: detail.stores, remote: true }
+            }));
+        });
+    } catch (error) {
+        console.warn('[Q-One:DB] 複数タブ間の更新通知を利用できません:', error);
+    }
+}
+
+function notifyDataChange(storeNames) {
+    const stores = [...new Set((storeNames || []).filter(name => typeof name === 'string'))];
+    if (stores.length === 0) return;
+    const detail = { stores, sourceId: TAB_INSTANCE_ID };
+    if (typeof window !== 'undefined') {
+        document.dispatchEvent(new CustomEvent(DATA_CHANGE_EVENT, { detail: { stores, remote: false } }));
+    }
+    try { dataChannel?.postMessage(detail); }
+    catch (error) { console.warn('[Q-One:DB] 更新通知の送信に失敗しました:', error); }
+}
+
 export function initDB() {
     if (dbInstance) return Promise.resolve(dbInstance);
     if (dbInitPromise) return dbInitPromise;
@@ -102,48 +133,46 @@ export async function getAll(storeName) {
     });
 }
 
-export async function put(storeName, item) {
+async function mutateStore(storeName, operation, value) {
     await initDB();
-    return new Promise((resolve, reject) => {
-        let request;
-        try { request = getStore(storeName, 'readwrite').put(item); }
-        catch (error) { reject(error); return; }
+    const tx = dbInstance.transaction(storeName, 'readwrite');
+    const completion = transactionPromise(tx, `${storeName} 更新`);
+    let request;
+    try {
+        const store = tx.objectStore(storeName);
+        if (operation === 'put') request = store.put(value);
+        else if (operation === 'add') request = store.add(value);
+        else if (operation === 'remove') request = store.delete(value);
+        else if (operation === 'clear') request = store.clear();
+        else throw new Error(`未対応の更新操作です: ${operation}`);
+    } catch (error) {
+        try { tx.abort(); } catch (_) { /* すでに終了 */ }
+        throw error;
+    }
+
+    const requestResult = new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        request.onerror = () => reject(request.error || new Error(`${storeName} の更新に失敗しました。`));
     });
+    const [, result] = await Promise.all([completion, requestResult]);
+    notifyDataChange([storeName]);
+    return result;
+}
+
+export async function put(storeName, item) {
+    return mutateStore(storeName, 'put', item);
 }
 
 export async function add(storeName, item) {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        let request;
-        try { request = getStore(storeName, 'readwrite').add(item); }
-        catch (error) { reject(error); return; }
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
+    return mutateStore(storeName, 'add', item);
 }
 
 export async function remove(storeName, key) {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        let request;
-        try { request = getStore(storeName, 'readwrite').delete(key); }
-        catch (error) { reject(error); return; }
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-    });
+    await mutateStore(storeName, 'remove', key);
 }
 
 export async function clear(storeName) {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        let request;
-        try { request = getStore(storeName, 'readwrite').clear(); }
-        catch (error) { reject(error); return; }
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-    });
+    await mutateStore(storeName, 'clear');
 }
 
 export async function getAllStores() {
@@ -188,6 +217,7 @@ export async function commitAnswer({ log, reviewState = null, problemStat = null
         throw error;
     }
     await completion;
+    notifyDataChange(storeNames);
     return true;
 }
 
@@ -212,6 +242,7 @@ export async function replaceAllStores(dataByStore) {
         throw error;
     }
     await completion;
+    notifyDataChange(storeNames);
 }
 
 /** 全オブジェクトストアを単一トランザクションで消去する。 */
@@ -227,6 +258,7 @@ export async function clearAllStores() {
         throw error;
     }
     await completion;
+    notifyDataChange(storeNames);
 }
 
 // 開発者用ヘルスチェックツール（コンソールから window.__debugQOne() で実行）

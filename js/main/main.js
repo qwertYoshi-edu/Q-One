@@ -28,8 +28,11 @@ const BACKUP_VERSION = 1;
 const dailyReviewButton = document.getElementById('start-daily-review-btn');
 const dailyReviewStatus = document.getElementById('review-home-status');
 const dailyReviewDueCount = document.getElementById('review-home-due-count');
-const dailyReviewOverdueCount = document.getElementById('review-home-overdue-count');
-const dailyReviewSecondary = document.getElementById('review-home-secondary');
+const reviewNotificationDot = document.getElementById('home-review-notification-dot');
+const reviewNotificationDescription = document.getElementById('home-review-notification-description');
+const homeTabRadio = document.getElementById('mode-analysis');
+let reviewRefreshTimer = null;
+let dailyReviewRefreshSequence = 0;
 const dataInfoOpenButton = document.getElementById('open-data-info-btn');
 const dataInfoCloseButton = document.getElementById('close-data-info-btn');
 const STORE_KEY_FIELDS = Object.freeze({
@@ -125,68 +128,100 @@ listen(copyIncorrectBtn, 'click', () => {
 });
 listen(copyTextarea, 'click', function() { this.select(); });
 
-// 今日の復習予定を更新する。通知ポップアップは使わず、ホーム内の表示だけを更新する。
-let isRefreshingDailyReview = false;
+// 復習通知は既存の復習スケジュールを参照し、due <= 現在時刻の問題がある場合だけ表示する。
+function updateReviewTabNotification(dueCount) {
+    const hasDueReview = Number(dueCount) > 0;
+    if (reviewNotificationDot) reviewNotificationDot.hidden = !hasDueReview;
+    if (reviewNotificationDescription) {
+        reviewNotificationDescription.textContent = hasDueReview ? '復習できる問題があります。' : '';
+    }
+}
+
+function scheduleNextReviewRefresh(nextDueAt) {
+    if (reviewRefreshTimer !== null) {
+        clearTimeout(reviewRefreshTimer);
+        reviewRefreshTimer = null;
+    }
+    const dueAt = Number(nextDueAt);
+    if (!Number.isFinite(dueAt) || dueAt <= Date.now()) return;
+    const delay = Math.min(Math.max(dueAt - Date.now() + 50, 1000), 2147480000);
+    reviewRefreshTimer = setTimeout(() => {
+        reviewRefreshTimer = null;
+        refreshDailyReviewHome();
+    }, delay);
+}
+
+// ホーム表示時・データ更新時に、今日の復習とタブ通知を同じスケジュールから更新する。
 async function refreshDailyReviewHome() {
-    if (!dailyReviewButton || isRefreshingDailyReview) return;
-    isRefreshingDailyReview = true;
+    if (!dailyReviewButton) return;
+    const refreshSequence = ++dailyReviewRefreshSequence;
     dailyReviewButton.disabled = true;
-    if (dailyReviewStatus) dailyReviewStatus.textContent = '復習予定を確認中…';
+    if (dailyReviewStatus) dailyReviewStatus.textContent = '復習予定を確認しています。';
     try {
         const [overview, checkpoint] = await Promise.all([
             getReviewOverview(),
             getScheduledReviewCheckpoint()
         ]);
-        const checkpointRemaining = checkpoint ? Math.max(0, checkpoint.questions.length - checkpoint.index) : 0;
-        const readyCount = checkpoint ? checkpointRemaining : overview.overdueCount;
-        if (dailyReviewDueCount) dailyReviewDueCount.textContent = String(overview.todayTargetCount);
-        if (dailyReviewOverdueCount) dailyReviewOverdueCount.textContent = String(readyCount);
-        if (dailyReviewSecondary) {
-            dailyReviewSecondary.textContent = `今後3日以内の予定 ${overview.upcomingCount}問 · 新しい問題 ${overview.newCount}問`;
+        if (refreshSequence !== dailyReviewRefreshSequence) return;
+        const remainingCheckpoint = checkpoint ? Math.max(0, checkpoint.questions.length - checkpoint.index) : 0;
+        if (dailyReviewDueCount) {
+            dailyReviewDueCount.textContent = String(checkpoint ? remainingCheckpoint : overview.todayTargetCount);
         }
-        dailyReviewButton.disabled = overview.queue.length === 0 && !checkpoint;
-        dailyReviewButton.textContent = checkpoint ? '復習の続きを始める' : '今日の復習を始める';
+        updateReviewTabNotification(overview.overdueCount);
+        scheduleNextReviewRefresh(overview.nextDueAt);
 
-        const unavailable = overview.unavailableCount > 0
-            ? ` 問題データを確認できない予定が${overview.unavailableCount}件あります。`
-            : '';
+        dailyReviewButton.disabled = overview.queue.length === 0 && !checkpoint;
+        dailyReviewButton.textContent = checkpoint
+            ? '復習を続きから再開'
+            : overview.queue.length > 0
+                ? '今日の復習を始める'
+                : '今すぐ復習できる問題はありません';
+
         if (dailyReviewStatus) {
+            const unavailable = overview.unavailableCount > 0
+                ? '一部の問題を読み込めません。問題パックを確認してください。'
+                : '';
             dailyReviewStatus.textContent = checkpoint
-                ? `中断した復習があと${checkpointRemaining}問あります。${unavailable}`
+                ? `前回の続きが ${remainingCheckpoint} 問あります。${unavailable}`
                 : overview.queue.length > 0
-                    ? `${overview.queue.length}問を今すぐ復習できます。${unavailable}`
+                    ? `今日の復習を始められます。${unavailable}`
                     : overview.todayTargetCount > 0
-                        ? `今日の復習予定は${overview.todayTargetCount}問です。復習時刻になると開始できます。${unavailable}`
-                        : '今日の復習予定はありません。';
+                        ? `今日取り組む問題は ${overview.todayTargetCount} 問あります。復習時刻になったら開始できます。${unavailable}`
+                        : '今日は復習する問題はありません。';
         }
     } catch (error) {
+        if (refreshSequence !== dailyReviewRefreshSequence) return;
         console.error('[Q-One:Review] 復習予定の取得に失敗:', error);
+        updateReviewTabNotification(0);
+        scheduleNextReviewRefresh(null);
         if (dailyReviewStatus) dailyReviewStatus.textContent = '復習予定を読み込めませんでした。ページを再読み込みしてください。';
         dailyReviewButton.disabled = true;
-    } finally {
-        isRefreshingDailyReview = false;
     }
 }
 
 async function startDailyReview() {
     if (!dailyReviewButton || dailyReviewButton.disabled) return;
     dailyReviewButton.disabled = true;
-    if (dailyReviewStatus) dailyReviewStatus.textContent = '復習問題を準備中…';
+    if (dailyReviewStatus) dailyReviewStatus.textContent = '復習問題を準備しています。';
     try {
         const checkpoint = await getScheduledReviewCheckpoint();
         if (checkpoint) {
             startNewPass(checkpoint.questions, true, {
                 mode: 'scheduled_review',
                 resumeIndex: checkpoint.index,
-                range: '中断した復習の続き'
+                range: '前回の続き'
             });
             return;
         }
         const overview = await getReviewOverview();
         if (!overview.queue.length) {
-            if (dailyReviewStatus) dailyReviewStatus.textContent = overview.dueTodayCount > 0
-                ? `今日の復習予定は${overview.dueTodayCount}問です。復習時刻になると開始できます。`
-                : '今すぐ復習できる問題はありません。';
+            if (dailyReviewStatus) {
+                dailyReviewStatus.textContent = overview.unavailableCount > 0
+                    ? '復習予定の問題を読み込めませんでした。問題パックを確認してください。'
+                    : overview.todayTargetCount > 0
+                        ? `今日取り組む問題は ${overview.todayTargetCount} 問あります。復習時刻になったら開始できます。`
+                        : '今日は復習する問題はありません。';
+            }
             dailyReviewButton.disabled = true;
             return;
         }
@@ -194,31 +229,36 @@ async function startDailyReview() {
         startNewPass(overview.queue, true, { mode: 'scheduled_review', range: '今日の復習' });
     } catch (error) {
         console.error('[Q-One:Review] 今日の復習開始に失敗:', error);
-        if (dailyReviewStatus) dailyReviewStatus.textContent = `開始できませんでした: ${error.message || error}`;
+        if (dailyReviewStatus) dailyReviewStatus.textContent = '復習を開始できませんでした。もう一度お試しください。';
         dailyReviewButton.disabled = false;
     }
 }
 
 listen(dailyReviewButton, 'click', startDailyReview);
 
-function refreshVisibleHomeData() {
-    if (document.visibilityState === 'hidden') return;
+// 学習記録・復習予定・問題パックが更新されたら、表示中のホームも通知も再集計する。
+const HOME_REFRESH_STORES = new Set(['packs', 'test_sessions', 'answer_logs', 'problem_stats', 'fsrs_states']);
+document.addEventListener('qone:data-changed', event => {
+    const changedStores = event.detail?.stores || [];
+    if (!changedStores.some(storeName => HOME_REFRESH_STORES.has(storeName))) return;
     refreshDailyReviewHome();
-    const analysisMode = document.getElementById('mode-analysis');
-    if (analysisMode?.checked) {
-        renderAnalysisDashboard().catch(error => {
-            console.error('[Q-One:Analysis] 分析画面の更新に失敗:', error);
-        });
-    }
-}
-window.addEventListener('focus', refreshVisibleHomeData);
-window.addEventListener('pageshow', refreshVisibleHomeData);
+    if (homeTabRadio?.checked) renderAnalysisDashboard();
+});
+
+listen(homeTabRadio, 'change', () => {
+    if (!homeTabRadio.checked) return;
+    refreshDailyReviewHome();
+    renderAnalysisDashboard();
+});
+
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refreshVisibleHomeData();
+    if (document.visibilityState === 'visible') {
+        refreshDailyReviewHome();
+        if (homeTabRadio?.checked) renderAnalysisDashboard();
+    }
 });
-window.addEventListener('qone:screenchange', event => {
-    if (event.detail?.screenName === 'setup') refreshVisibleHomeData();
-});
+window.addEventListener('focus', () => refreshDailyReviewHome());
+window.addEventListener('pageshow', () => refreshDailyReviewHome());
 
 // 学習操作
 listen(startBtn, 'click', () => startGame(false));
@@ -240,6 +280,7 @@ listen(homeBtn, 'click', () => {
     if (confirm('最初の画面に戻りますか？\n（入力した問題や設定は保持されます）')) {
         if (state.isInterimReview) endInterimReview(false);
         switchScreen('setup', showIntermediateResults);
+        refreshDailyReviewHome();
     }
 });
 
@@ -545,7 +586,7 @@ listen(resetDataBtn, 'click', async () => {
 // アプリケーション起動
 if (validateRequiredDOM()) {
     initializeFeature('問題パック管理', initPackManager);
-    initializeFeature('苦手分析', initAnalysisModule);
+    initializeFeature('ホーム', initAnalysisModule);
     initializeFeature('学習履歴', initHistoryModule);
     refreshDailyReviewHome();
     loadSettings();

@@ -53,13 +53,17 @@ export async function getReviewOverview(now = new Date()) {
     const queuedKeys = new Set(states.map(item => item.id));
     const newCount = [...problemIndex.entries()].filter(([key, problem]) => problem?.type !== 'check' && !queuedKeys.has(key)).length;
     return {
-        queue: overdue, // 実際に期限時刻を過ぎた問題のみを出題する。未来の今日分は先取りしない。
+        queue: overdue, // 復習予定時刻を迎えた問題のみを出題する。時刻前の予定分は先取りしない。
         todayTargetCount: buckets.overdue.length + buckets.dueToday.length,
         overdueCount: buckets.overdue.length,
         dueTodayCount: buckets.dueToday.length,
         upcomingCount: buckets.upcoming.length,
         newCount,
         unavailableCount: buckets.overdue.length - overdue.length + buckets.dueToday.length - dueToday.length,
+        nextDueAt: states.reduce((next, item) => {
+            const due = Number(item.due);
+            return due > now.getTime() && (next === null || due < next) ? due : next;
+        }, null),
         dayStart: buckets.dayStart,
         dayEnd: buckets.dayEnd
     };

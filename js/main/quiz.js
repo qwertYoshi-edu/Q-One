@@ -218,7 +218,7 @@ export function startNewPass(problems, isReview = false, options = {}) {
 
     let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
     if (state.currentSessionMode === 'scheduled_review') modeTitle = '今日の復習';
-    else if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手な問題の復習';
+    else if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
     else if (state.currentSessionMode === 'retry_all' || state.currentSessionMode === 'history_retry') modeTitle = '再挑戦';
     if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
     if (modeIndicator) modeIndicator.textContent = modeTitle;
@@ -227,7 +227,7 @@ export function startNewPass(problems, isReview = false, options = {}) {
     screenSwitcher('main');
     state.sessionReady = DB.put('test_sessions', session).catch(error => {
         console.error('[Q-One:Error] セッション保存エラー:', error);
-        alert(`学習記録を保存できませんでした: ${error.message || error}`);
+        alert(`学習セッションを保存できませんでした: ${error.message || error}`);
         throw error;
     });
     // まだ回答がないまま画面遷移しても未処理拒否にしない。保存処理側では同じPromiseをawaitする。
@@ -286,7 +286,7 @@ export function endInterimReview(resume = true) {
     state.savedState = null;
 
     let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
-    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手な問題の復習';
+    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
     if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
     if (modeIndicator) modeIndicator.textContent = modeTitle;
     updateIncorrectListPanel();

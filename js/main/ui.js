@@ -123,7 +123,6 @@ export function switchScreen(screenName, showIntermediateResultsFn) {
         if (sequence !== screenTransitionSequence) return;
         previous?.classList.remove('active');
         state.currentScreen = screenName;
-        window.dispatchEvent(new CustomEvent('qone:screenchange', { detail: { screenName } }));
         target.classList.add('active');
         target.setAttribute('tabindex', '-1');
         target.focus({ preventScroll: true });
