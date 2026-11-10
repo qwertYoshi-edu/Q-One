@@ -165,7 +165,7 @@ export function classifyReviewStates(reviewStates, now = new Date(), upcomingDay
         .filter(item => item && typeof item.id === 'string' && item.due !== null && item.due !== undefined && Number.isFinite(Number(item.due)))
         .sort((a, b) => Number(a.due) - Number(b.due));
     return {
-        // 復習予定時刻を迎えたかどうかを日時で判定する。今日の予定分は表示するが、時刻前には出題しない。
+        // 現在時刻より前の予定と、今日これからの予定を分ける。今日の予定は先取り出題しない。
         overdue: valid.filter(item => Number(item.due) <= nowTime),
         dueToday: valid.filter(item => Number(item.due) > nowTime && Number(item.due) < end),
         upcoming: valid.filter(item => Number(item.due) >= end && Number(item.due) < upcomingEnd),

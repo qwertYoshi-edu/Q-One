@@ -22,7 +22,7 @@ function getModeLabel(mode) {
         review: '誤答復習',
         retry_all: '全問再挑戦',
         history_retry: '履歴から再挑戦',
-        weakness_training: '苦手克服特訓'
+        weakness_training: '苦手問題の復習'
     })[mode] || '学習';
 }
 

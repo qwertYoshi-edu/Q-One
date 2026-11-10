@@ -33,25 +33,53 @@ export function calculateAccuracyPercent(correctCount, totalCount) {
     return Math.round(Math.max(0, correct) / total * 100);
 }
 
+/** 今日を含む直近7日間の解答正答率と学習日数を集計する。 */
+export function summarizeRecentLearning(logs, now = new Date()) {
+    const current = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+    if (Number.isNaN(current.getTime())) throw new TypeError('集計日時が不正です。');
 
-/** 今週（月曜始まり）の学習問題数と学習日数をログから集計する。 */
-export function summarizeWeeklyLearning(logs, now = new Date()) {
-    const reference = now instanceof Date ? new Date(now.getTime()) : new Date(now);
-    if (!Number.isFinite(reference.getTime())) return { problemCount: 0, learningDays: 0 };
-
-    const weekStart = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
-    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
-    const problemKeys = new Set();
-    const learningDays = new Set();
-
-    for (const log of Array.isArray(logs) ? logs : []) {
+    const start = new Date(current.getFullYear(), current.getMonth(), current.getDate() - 6).getTime();
+    const end = current.getTime();
+    const recentLogs = (Array.isArray(logs) ? logs : []).filter(log => {
         const timestamp = Number(log?.timestamp);
-        if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > reference.getTime()) continue;
-        const date = new Date(timestamp);
-        if (date < weekStart) continue;
-        if (typeof log.problemKey === 'string' && log.problemKey.length > 0) problemKeys.add(log.problemKey);
-        learningDays.add(`${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`);
-    }
+        return Number.isFinite(timestamp) && timestamp >= start && timestamp <= end;
+    });
+    const correctCount = recentLogs.filter(log => log.isCorrect === true || log.isCorrect === 1 || log.isCorrect === 'true').length;
+    const learningDates = new Set(recentLogs.map(log => {
+        const date = new Date(Number(log.timestamp));
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }));
 
-    return { problemCount: problemKeys.size, learningDays: learningDays.size };
+    return {
+        totalAttempts: recentLogs.length,
+        correctAttempts: correctCount,
+        accuracyPercent: calculateAccuracyPercent(correctCount, recentLogs.length),
+        learningDays: learningDates.size
+    };
+}
+
+/** 優先度の高い苦手問題を先に並べる。スコアは表示せず、根拠の順で比較する。 */
+export function sortWeaknessProblems(problems) {
+    return [...(Array.isArray(problems) ? problems : [])].sort((a, b) => {
+        const compareDescending = (left, right) => (Number(right) || 0) - (Number(left) || 0);
+        const recentMistakes = compareDescending(a.recentIncorrectCount, b.recentIncorrectCount);
+        if (recentMistakes) return recentMistakes;
+
+        const duePriority = compareDescending(a.isScheduledDue ? 1 : 0, b.isScheduledDue ? 1 : 0);
+        if (duePriority) return duePriority;
+
+        const againPriority = compareDescending(a.recentAgainCount, b.recentAgainCount);
+        if (againPriority) return againPriority;
+
+        const accuracyPriority = (Number(a.accuracy) || 0) - (Number(b.accuracy) || 0);
+        if (accuracyPriority) return accuracyPriority;
+
+        const mistakeRecency = compareDescending(a.lastIncorrectAt, b.lastIncorrectAt);
+        if (mistakeRecency) return mistakeRecency;
+
+        const activityRecency = compareDescending(a.latestAttemptAt, b.latestAttemptAt);
+        if (activityRecency) return activityRecency;
+
+        return String(a.problemKey || '').localeCompare(String(b.problemKey || ''));
+    });
 }

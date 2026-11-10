@@ -218,7 +218,7 @@ export function startNewPass(problems, isReview = false, options = {}) {
 
     let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
     if (state.currentSessionMode === 'scheduled_review') modeTitle = '今日の復習';
-    else if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
+    else if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手問題の復習';
     else if (state.currentSessionMode === 'retry_all' || state.currentSessionMode === 'history_retry') modeTitle = '再挑戦';
     if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
     if (modeIndicator) modeIndicator.textContent = modeTitle;
@@ -286,7 +286,7 @@ export function endInterimReview(resume = true) {
     state.savedState = null;
 
     let modeTitle = state.isFinalCheckMode ? '直前チェック' : (state.isReviewPhase ? '復習モード' : '通常モード');
-    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手克服特訓';
+    if (state.currentSessionMode === 'weakness_training') modeTitle = '苦手問題の復習';
     if (state.isSelfGradingMode && !state.isFinalCheckMode) modeTitle += ' (自己採点)';
     if (modeIndicator) modeIndicator.textContent = modeTitle;
     updateIncorrectListPanel();
