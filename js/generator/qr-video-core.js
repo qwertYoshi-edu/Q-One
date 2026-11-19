@@ -16,8 +16,7 @@ const SETTINGS = {
     ec: 'H',
     modulePx: 4,
     extraMargin: 6,
-    // カメラ読み取りで複数フレームを取得できるよう、QRを1枚500ms表示する。
-    fps: 2,
+    fps: 5,
     bitrateMbps: 4,
     reserve: 1,
     align16: true,
