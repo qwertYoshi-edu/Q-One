@@ -1496,6 +1496,55 @@
             #intermediate-screen.list-open .list-overlay { display: block; opacity: 1; pointer-events: auto; }
         }
 
+        /* ===== QR転送（ファイル / カメラ / 送信） ===== */
+        .pack-import-choice-content { max-width: 430px; padding: 1.6rem; }
+        .pack-import-choice-content h3 { margin: 0 2rem .45rem 0; font-size: 1.2rem; }
+        .pack-import-choice-description { margin: 0 0 1.2rem; color: var(--secondary-color); font-size: .9rem; line-height: 1.6; }
+        .pack-import-methods { display: grid; gap: .7rem; }
+        .pack-import-method-btn {
+            display: flex; align-items: center; gap: .9rem; width: 100%; min-height: 76px; padding: .85rem 1rem;
+            color: var(--text-color); background: var(--card-bg); border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); text-align: left; cursor: pointer; transition: border-color .18s, background .18s;
+        }
+        .pack-import-method-btn:hover { border-color: var(--primary-color); background: var(--success-bg); }
+        .pack-import-method-icon {
+            display: flex; align-items: center; justify-content: center; flex: 0 0 42px; width: 42px; height: 42px;
+            border-radius: 10px; color: var(--primary-color); background: var(--pack-add-icon-bg); border: 1px solid var(--pack-add-icon-border);
+        }
+        .pack-import-method-icon svg { width: 22px; height: 22px; }
+        .pack-import-method-text { display: flex; flex-direction: column; gap: .18rem; min-width: 0; }
+        .pack-import-method-text strong { font-size: .96rem; }
+        .pack-import-method-text small { color: var(--secondary-color); font-size: .78rem; }
+
+        .camera-scan-modal-content, .qr-send-modal-content { width: min(94%, 620px); max-width: 620px; padding: 1.25rem; }
+        .camera-scan-modal-content h3, .qr-send-modal-content h3 { margin: 0 2.5rem .35rem 0; font-size: 1.2rem; }
+        .camera-scan-description, .qr-send-description { margin: 0 0 1rem; color: var(--secondary-color); font-size: .88rem; line-height: 1.55; }
+        .camera-preview-frame {
+            position: relative; display: flex; align-items: center; justify-content: center; width: 100%;
+            aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--radius-md); background: #111827;
+        }
+        #camera-scan-video { display: block; width: 100%; height: 100%; object-fit: contain; }
+        .camera-scan-guide {
+            position: absolute; left: 50%; top: 50%; width: min(68%, 310px); aspect-ratio: 1 / 1;
+            border: 2px solid rgba(255,255,255,.9); border-radius: 12px; transform: translate(-50%, -50%);
+            box-shadow: 0 0 0 999px rgba(0,0,0,.12); pointer-events: none;
+        }
+        .camera-scan-info { margin-top: .9rem; }
+        .camera-scan-progress-bg { width: 100%; height: 9px; overflow: hidden; border-radius: 99px; background: var(--light-bg); border: 1px solid var(--border-color); }
+        .camera-scan-progress-fill { width: 0%; height: 100%; background: var(--primary-color); transition: width .18s ease; }
+        .camera-scan-status { min-height: 1.5em; margin: .55rem 0 0; color: var(--secondary-color); font-size: .88rem; text-align: center; }
+        .camera-scan-actions, .qr-send-actions { display: flex; gap: .65rem; justify-content: flex-end; margin-top: 1rem; }
+        .camera-scan-actions button, .qr-send-actions button { min-width: 112px; }
+        .qr-send-video-wrap { width: min(100%, 460px); aspect-ratio: 1 / 1; margin: .7rem auto 1rem; background: #111827; border-radius: var(--radius-md); overflow: hidden; }
+        #qr-send-video { display: block; width: 100%; height: 100%; object-fit: contain; }
+        .qr-send-loop-status { display: flex; justify-content: center; align-items: center; gap: .45rem; color: var(--success-text-on-bg); font-size: .88rem; font-weight: 650; }
+        .qr-send-loop-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success-color); box-shadow: 0 0 0 3px var(--success-bg); }
+        @media (max-width: 520px) {
+            .camera-scan-modal-content, .qr-send-modal-content { padding: 1rem; }
+            .camera-scan-actions, .qr-send-actions { flex-direction: column-reverse; }
+            .camera-scan-actions button, .qr-send-actions button { width: 100%; }
+        }
+
         /* ===== 簡易間隔反復 4段階自己評価ボタン ===== */
         #review-rating-container {
             display: none;
@@ -1719,9 +1768,9 @@
                                     <button aria-label="新しい問題パックを追加" class="pack-add-tile" id="add-pack-btn" type="button">
                                         <span aria-hidden="true" class="pack-add-icon"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span>
                                         <span class="pack-add-title">新しい問題パック</span>
-                                        <span class="pack-add-description">ファイルから読み込み</span>
+                                        <span class="pack-add-description">ファイル / カメラから読み込み</span>
                                     </button>
-                                    <input accept=".mp4,.mov,.txt,video/mp4,video/quicktime,text/plain" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
+                                    <input accept=".mp4,.mov,.txt,video/*,text/plain" class="pack-file-input" hidden="" id="pack-file-input" type="file"/>
                                     
                                     <!-- mockup HTML 完全準拠カード 1 (数学) -->
                                     <article class="q-card math" tabindex="0" role="button" aria-pressed="false" data-pack-id="qone_demo_math_v1">
@@ -1978,7 +2027,7 @@
                     <li>MP4Box.js 0.5.3</li>
                     <li>jsQR 1.4.0（QR解析用Web Workerから読み込み）</li>
                 </ul>
-                <p>CDNへのアクセスでは、接続先にIPアドレス、ブラウザー情報、要求されたライブラリの情報などが伝わる場合があります。確認したQ-Oneのソースコードには、問題文・正解・解答履歴を外部へ送るための fetch / XMLHttpRequest / WebSocket / sendBeacon は実装されていません。問題の解析・動画処理はブラウザー内で行います。ただし、第三者ライブラリの配布元やブラウザー・拡張機能などの挙動まで保証するものではありません。</p>
+                <p>CDNへのアクセスでは、接続先にIPアドレス、ブラウザー情報、要求されたライブラリの情報などが伝わる場合があります。確認したQ-Oneのソースコードには、問題文・正解・解答履歴を外部へ送るための fetch / XMLHttpRequest / WebSocket / sendBeacon は実装されていません。問題の解析・動画処理・カメラ映像のQR解析はブラウザー内で行います。カメラ映像や復元した問題データをQ-Oneのサーバーへ送信する処理はありません。ただし、第三者ライブラリの配布元やブラウザー・拡張機能などの挙動まで保証するものではありません。</p>
             </section>
             <section class="info-section">
                 <h2>4. バックアップと復元</h2>
@@ -2001,7 +2050,7 @@
                 <h2>8. 第三者ライブラリとライセンス</h2>
                 <p>各ライブラリの著作権表示・ライセンス本文・参照先は、配布物の <code>THIRD_PARTY_LICENSES.md</code> に記載しています。mp4-muxer は npm 上で非推奨（deprecated）とされ、後継ライブラリへの移行が案内されています。現行処理との互換性を保つため本版では利用を継続していますが、今後の保守・更新が行われない可能性があります。バージョン固定やライセンス確認は安全性の保証ではありません。</p>
             </section>
-            <p class="info-last-updated">最終確認日：2026-11-09。更新時には依存関係・通信処理・ライセンスを再確認してください。</p>
+            <p class="info-last-updated">最終確認日：2026-11-19。更新時には依存関係・通信処理・ライセンスを再確認してください。</p>
         </main>
     </div>
 
@@ -2199,6 +2248,64 @@
             </div>
         </div>
     </div>
+    <!-- 問題パックの読み込み方法選択 -->
+    <div id="pack-import-choice-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pack-import-choice-title">
+        <div class="modal-overlay" data-close-import-choice></div>
+        <div class="modal-content pack-import-choice-content">
+            <button class="modal-close-btn" type="button" aria-label="閉じる" data-close-import-choice>×</button>
+            <h3 id="pack-import-choice-title">問題パックを追加</h3>
+            <p class="pack-import-choice-description">読み込み方法を選択してください。</p>
+            <div class="pack-import-methods">
+                <button id="pack-import-file-btn" class="pack-import-method-btn" type="button">
+                    <span class="pack-import-method-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg></span>
+                    <span class="pack-import-method-text"><strong>ファイル・アルバムから</strong><small>保存済みのMP4・MOV・TXTを選択</small></span>
+                </button>
+                <button id="pack-import-camera-btn" class="pack-import-method-btn" type="button">
+                    <span class="pack-import-method-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h-4l-1.5 2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+                    <span class="pack-import-method-text"><strong>カメラ映像から</strong><small>別の画面に表示したQR動画を連続読み取り</small></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- カメラによる連続QR読み取り -->
+    <div id="camera-scan-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="camera-scan-title">
+        <div class="modal-overlay"></div>
+        <div class="modal-content camera-scan-modal-content">
+            <button id="camera-scan-close-btn" class="modal-close-btn" type="button" aria-label="読み取りを停止">×</button>
+            <h3 id="camera-scan-title">カメラで読み取り</h3>
+            <p class="camera-scan-description">送信側でQR動画をループ再生し、ガイド内にQRコード全体が入るように映してください。多少傾いていても読み取れます。すべてのQRを受信するまで自動で読み取りを続けます。</p>
+            <div class="camera-preview-frame">
+                <video id="camera-scan-video" autoplay muted playsinline></video>
+                <div class="camera-scan-guide" aria-hidden="true"></div>
+            </div>
+            <div class="camera-scan-info">
+                <div class="camera-scan-progress-bg"><div id="camera-scan-progress" class="camera-scan-progress-fill"></div></div>
+                <p id="camera-scan-status" class="camera-scan-status" aria-live="polite">カメラを起動しています...</p>
+            </div>
+            <div class="camera-scan-actions">
+                <button id="camera-scan-cancel-btn" class="cancel-btn" type="button">読み取りを停止</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 生成したQR動画のループ再生 -->
+    <div id="qr-send-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="qr-send-title">
+        <div class="modal-overlay" data-close-qr-send></div>
+        <div class="modal-content qr-send-modal-content">
+            <button class="modal-close-btn" type="button" aria-label="閉じる" data-close-qr-send>×</button>
+            <h3 id="qr-send-title">QR動画を送信</h3>
+            <p class="qr-send-description">受信側の端末で「カメラ映像から」を選び、この画面にカメラを向けてください。動画は自動でループ再生されます。</p>
+            <div class="qr-send-video-wrap"><video id="qr-send-video" autoplay muted loop playsinline></video></div>
+            <div class="qr-send-loop-status"><span class="qr-send-loop-dot" aria-hidden="true"></span><span id="qr-send-play-status">ループ再生中</span></div>
+            <div class="qr-send-actions">
+                <button id="qr-send-play-btn" class="btn-secondary" type="button" hidden>再生する</button>
+                <button id="qr-send-save-btn" class="btn-secondary" type="button">動画を保存</button>
+                <button class="btn-primary" type="button" data-close-qr-send>閉じる</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 処理中プログレスモーダル（動画生成・解析用） -->
     <div id="progress-modal" class="modal" data-prevent-escape="true">
         <div class="modal-overlay" style="pointer-events: none;"></div>
