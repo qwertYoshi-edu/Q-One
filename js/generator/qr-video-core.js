@@ -16,7 +16,8 @@ const SETTINGS = {
     ec: 'H',
     modulePx: 4,
     extraMargin: 6,
-    fps: 10,
+    // カメラ読み取りで複数フレームを取得できるよう、QRを1枚500ms表示する。
+    fps: 2,
     bitrateMbps: 4,
     reserve: 1,
     align16: true,
@@ -172,6 +173,73 @@ function parsePacket(bytes) {
     const crc = r32(bytes, 68);
     if (crc32(payload) !== crc) return null;
     return { flags: bytes[5], transferId: bytes.slice(8, 16), seq, total, originalSize, encodedSize, payload, hash: bytes.slice(36, 68), crc };
+}
+
+// 動画・カメラの両入力で共用するパケット蓄積・復元処理。
+export function createPacketCollector() {
+    const chunks = new Map();
+    let transferId = null;
+    let total = null;
+    let originalSize = null;
+    let encodedSize = null;
+    let flags = null;
+    let expectedHash = null;
+
+    function add(binaryData) {
+        const packet = parsePacket(binaryData instanceof Uint8Array ? binaryData : Uint8Array.from(binaryData || []));
+        if (!packet) return { accepted: false, added: false, received: chunks.size, total, complete: false };
+
+        if (!transferId) {
+            transferId = packet.transferId.slice();
+            total = packet.total;
+            originalSize = packet.originalSize;
+            encodedSize = packet.encodedSize;
+            flags = packet.flags;
+            expectedHash = packet.hash.slice();
+        }
+
+        const sameTransfer = equalBytes(transferId, packet.transferId) &&
+            packet.total === total &&
+            packet.originalSize === originalSize &&
+            packet.encodedSize === encodedSize &&
+            packet.flags === flags &&
+            equalBytes(packet.hash, expectedHash);
+        if (!sameTransfer) return { accepted: false, added: false, received: chunks.size, total, complete: false };
+
+        const added = !chunks.has(packet.seq);
+        if (added) chunks.set(packet.seq, packet.payload.slice());
+        return { accepted: true, added, received: chunks.size, total, complete: chunks.size === total };
+    }
+
+    async function restore() {
+        if (total === null || chunks.size !== total) throw new Error('必要なQRパケットがそろっていません。');
+        const joined = new Uint8Array(encodedSize);
+        let offset = 0;
+        for (let i = 0; i < total; i++) {
+            const chunk = chunks.get(i);
+            if (!chunk) throw new Error('データの一部が欠損しています。');
+            if (offset + chunk.length > joined.length) throw new Error('パケットサイズが不正です。');
+            joined.set(chunk, offset);
+            offset += chunk.length;
+        }
+        if (offset !== encodedSize) throw new Error('復元データのサイズが一致しません。');
+
+        const actualHash = await sha256(joined);
+        if (!equalBytes(actualHash, expectedHash)) throw new Error('データが破損しています（SHA-256不一致）。');
+
+        let plain = joined;
+        if (flags & 1) plain = await decompressBytes(joined);
+        if (originalSize !== null && plain.length !== originalSize) throw new Error('復元サイズが一致しません。');
+        return new TextDecoder('utf-8', { fatal: true }).decode(plain);
+    }
+
+    return {
+        add,
+        restore,
+        get received() { return chunks.size; },
+        get total() { return total; },
+        get complete() { return total !== null && chunks.size === total; }
+    };
 }
 
 // -------------------------
@@ -633,8 +701,7 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
     const concurrency = Math.max(2, Math.min(6, navigator.hardwareConcurrency || 4));
     const workers = Array.from({ length: concurrency }, () => new Worker(workerUrl));
 
-    const chunks = new Map();
-    let transferId = null, total = null, originalSize = null, encodedSize = null, flags = null, expectedHash = null;
+    const packetCollector = createPacketCollector();
     let isAllChunksCollected = false;
 
     let inFlight = 0, inFlightResolvers = [];
@@ -648,20 +715,9 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
         w.onmessage = (e) => {
             onWorkerFinished();
             if (e.data.success && e.data.binaryData) {
-                const packet = parsePacket(Uint8Array.from(e.data.binaryData));
-                if (packet) {
-                    if (!transferId) {
-                        transferId = packet.transferId.slice(); total = packet.total; originalSize = packet.originalSize;
-                        encodedSize = packet.encodedSize; flags = packet.flags; expectedHash = packet.hash.slice();
-                    }
-                    if (equalBytes(transferId, packet.transferId) && packet.total === total && equalBytes(packet.hash, expectedHash)) {
-                        if (!chunks.has(packet.seq)) chunks.set(packet.seq, packet.payload.slice());
-                    }
-                }
+                packetCollector.add(Uint8Array.from(e.data.binaryData));
             }
-            if (total !== null) {
-                if (chunks.size === total && !isAllChunksCollected) isAllChunksCollected = true;
-            }
+            if (packetCollector.complete && !isAllChunksCollected) isAllChunksCollected = true;
         };
     });
 
@@ -737,8 +793,8 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
             decoder.decode(new EncodedVideoChunk({ type: s.is_sync ? 'key' : 'delta', timestamp: s.cts, duration: s.duration, data: s.data }));
             
             if (i % 10 === 0) {
-                const ratio = total ? (chunks.size / total * 0.9) : ((i + 1) / sampleQueue.length * 0.4);
-                if (typeof onProgress === 'function') onProgress(ratio, total ? `QR解析中... ${chunks.size} / ${total}` : '映像を展開中...');
+                const ratio = packetCollector.total ? (packetCollector.received / packetCollector.total * 0.9) : ((i + 1) / sampleQueue.length * 0.4);
+                if (typeof onProgress === 'function') onProgress(ratio, packetCollector.total ? `QR解析中... ${packetCollector.received} / ${packetCollector.total}` : '映像を展開中...');
                 await sleep(0);
             }
         }
@@ -754,26 +810,12 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
             throw canceled;
         }
 
-        if (total !== null && chunks.size === total) {
+        if (packetCollector.complete) {
             if (typeof onProgress === 'function') onProgress(0.95, 'テキストデータを復元中...');
-            const joined = new Uint8Array(encodedSize);
-            let p = 0;
-            for (let i = 0; i < total; i++) {
-                const c = chunks.get(i);
-                if (!c) throw new Error('データの一部が欠損しています。');
-                joined.set(c, p); p += c.length;
-            }
-            const h = await sha256(joined);
-            if (!equalBytes(h, expectedHash)) throw new Error('データが破損しています。');
-
-            let plain = joined;
-            if (flags & 1) plain = await decompressBytes(joined);
-            if (originalSize !== null && plain.length !== originalSize) throw new Error('復元サイズが一致しません。');
-            
-            return new TextDecoder('utf-8', { fatal: true }).decode(plain);
-        } else {
-            throw new Error(`必要なデータが不足しています。読み取れたQR: ${chunks.size}/${total||'不明'}`);
+            return await packetCollector.restore();
         }
+        throw new Error(`必要なデータが不足しています。読み取れたQR: ${packetCollector.received}/${packetCollector.total ?? '不明'}`);
+
     } finally {
         if (activeDecoder) {
             try { if (activeDecoder.state !== 'closed') activeDecoder.close(); }
@@ -783,3 +825,206 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
         URL.revokeObjectURL(workerUrl);
     }
 }
+
+// -------------------------
+// Decode (Live Camera -> Worker jsQR)
+// -------------------------
+export async function decodeFromCamera(videoElement, onProgress, isStopped = () => false) {
+    const throwIfStopped = () => {
+        if (isStopped()) {
+            const error = new Error('ユーザーによってキャンセルされました。');
+            error.name = 'AbortError';
+            throw error;
+        }
+    };
+    if (!videoElement) throw new Error('カメラ映像の表示先が見つかりません。');
+    if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('このブラウザーではカメラを利用できません。HTTPS接続とカメラ対応ブラウザーを確認してください。');
+    }
+    throwIfStopped();
+
+    let stream = null;
+    let worker = null;
+    let workerUrl = null;
+    let frameCanvas = null;
+    let frameContext = null;
+    let frameCallbackId = null;
+    let animationFrameId = null;
+    let cancelWatchId = null;
+
+    try {
+        if (typeof onProgress === 'function') onProgress(0, 'カメラを起動しています...');
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 15, max: 20 }
+                }
+            });
+        } catch (error) {
+            if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+                throw new Error('カメラの使用が許可されていません。ブラウザーのサイト設定からカメラを許可してください。');
+            }
+            if (error?.name === 'NotFoundError' || error?.name === 'DevicesNotFoundError') {
+                throw new Error('利用できるカメラが見つかりません。');
+            }
+            if (error?.name === 'NotReadableError' || error?.name === 'TrackStartError') {
+                throw new Error('カメラを開始できません。他のアプリで使用中でないか確認してください。');
+            }
+            throw error;
+        }
+        throwIfStopped();
+
+        videoElement.muted = true;
+        videoElement.playsInline = true;
+        videoElement.autoplay = true;
+        videoElement.srcObject = stream;
+        await videoElement.play();
+
+        // iOS Safari等で映像サイズが確定するまで待機する。
+        while ((!videoElement.videoWidth || !videoElement.videoHeight) && !isStopped()) await sleep(80);
+        throwIfStopped();
+
+        const sourceWidth = videoElement.videoWidth;
+        const sourceHeight = videoElement.videoHeight;
+        const scale = Math.min(1, 1280 / Math.max(sourceWidth, sourceHeight));
+        const width = Math.max(1, Math.round(sourceWidth * scale));
+        const height = Math.max(1, Math.round(sourceHeight * scale));
+        frameCanvas = document.createElement('canvas');
+        frameCanvas.width = width;
+        frameCanvas.height = height;
+        frameContext = frameCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
+        if (!frameContext) throw new Error('カメラ映像を解析するCanvasを初期化できません。');
+
+        const workerCode = `
+            self.importScripts('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
+            self.onmessage = function(e) {
+                const { id, data, width, height } = e.data;
+                try {
+                    const pixels = data instanceof Uint8ClampedArray ? data : new Uint8ClampedArray(data);
+                    const code = jsQR(pixels, width, height, { inversionAttempts: 'attemptBoth' });
+                    if (code && code.binaryData && code.binaryData.length > 0) {
+                        const bin = Uint8Array.from(code.binaryData);
+                        self.postMessage({ id, success: true, binaryData: bin }, [bin.buffer]);
+                    } else {
+                        self.postMessage({ id, success: false });
+                    }
+                } catch (err) {
+                    self.postMessage({ id, success: false, error: err && err.message ? err.message : String(err) });
+                }
+            };
+        `;
+        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+        workerUrl = URL.createObjectURL(workerBlob);
+        worker = new Worker(workerUrl);
+
+        const collector = createPacketCollector();
+        let workerBusy = false;
+        let settled = false;
+        let lastScanAt = 0;
+        let requestId = 0;
+        let resultPromiseResolve;
+        let resultPromiseReject;
+
+        const resultPromise = new Promise((resolve, reject) => {
+            resultPromiseResolve = resolve;
+            resultPromiseReject = reject;
+        });
+
+        const stopScanning = (error) => {
+            if (settled) return;
+            settled = true;
+            if (error) resultPromiseReject(error);
+        };
+
+        worker.onmessage = async (event) => {
+            workerBusy = false;
+            if (settled || isStopped()) return;
+            const data = event.data || {};
+            if (data.error) console.warn('[Q-One:Camera] QR解析エラー:', data.error);
+            if (data.success && data.binaryData) {
+                const result = collector.add(data.binaryData);
+                if (result.added && typeof onProgress === 'function') {
+                    const ratio = result.total ? Math.min(0.9, result.received / result.total * 0.9) : 0;
+                    onProgress(ratio, `QR読み取り中... ${result.received} / ${result.total}`);
+                }
+                if (result.complete && !settled) {
+                    settled = true;
+                    try {
+                        if (typeof onProgress === 'function') onProgress(0.95, '全パケットを受信しました。データを検証中...');
+                        const restored = await collector.restore();
+                        if (typeof onProgress === 'function') onProgress(1, 'データの復元が完了しました。');
+                        resultPromiseResolve(restored);
+                    } catch (error) {
+                        resultPromiseReject(error);
+                    }
+                }
+            }
+        };
+        worker.onerror = (event) => {
+            stopScanning(new Error(`QR解析Workerでエラーが発生しました: ${event.message || '不明なエラー'}`));
+        };
+
+        const scanFrame = () => {
+            if (settled || isStopped()) return;
+            const now = performance.now();
+            if (!workerBusy && videoElement.readyState >= 2 && now - lastScanAt >= 100) {
+                lastScanAt = now;
+                try {
+                    frameContext.drawImage(videoElement, 0, 0, width, height);
+                    const imageData = frameContext.getImageData(0, 0, width, height);
+                    workerBusy = true;
+                    requestId += 1;
+                    worker.postMessage({ id: requestId, data: imageData.data, width, height }, [imageData.data.buffer]);
+                } catch (error) {
+                    workerBusy = false;
+                    console.warn('[Q-One:Camera] フレーム取得をスキップしました:', error);
+                }
+            }
+        };
+
+        const scheduleNextFrame = () => {
+            if (settled || isStopped()) return;
+            if (typeof videoElement.requestVideoFrameCallback === 'function') {
+                frameCallbackId = videoElement.requestVideoFrameCallback(() => {
+                    scanFrame();
+                    scheduleNextFrame();
+                });
+            } else {
+                animationFrameId = requestAnimationFrame(() => {
+                    scanFrame();
+                    scheduleNextFrame();
+                });
+            }
+        };
+
+        if (typeof onProgress === 'function') onProgress(0, '画面内のQRコードを探しています...');
+        scheduleNextFrame();
+        cancelWatchId = setInterval(() => {
+            if (isStopped()) {
+                const error = new Error('ユーザーによってキャンセルされました。');
+                error.name = 'AbortError';
+                stopScanning(error);
+            }
+        }, 120);
+
+        return await resultPromise;
+    } finally {
+        if (cancelWatchId !== null) clearInterval(cancelWatchId);
+        if (frameCallbackId !== null && typeof videoElement.cancelVideoFrameCallback === 'function') {
+            try { videoElement.cancelVideoFrameCallback(frameCallbackId); } catch (_) {}
+        }
+        if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+        if (worker) worker.terminate();
+        if (workerUrl) URL.revokeObjectURL(workerUrl);
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.srcObject = null;
+        }
+    }
+}
+

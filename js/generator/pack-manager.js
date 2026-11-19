@@ -2,7 +2,7 @@
 // 問題パック管理 UIコントローラー
 // ============================================================================
 
-import { encodeToVideo, decodeFromVideo, extractMetadataAndText } from './qr-video-core.js';
+import { encodeToVideo, decodeFromVideo, decodeFromCamera, extractMetadataAndText } from './qr-video-core.js';
 import * as DB from '../main/db.js';
 import { parseText } from '../main/parser.js';
 import { escapeHtml } from '../main/utils.js';
@@ -13,6 +13,20 @@ const exportPackBtn = document.getElementById('export-pack-btn');
 const saveMyProblemBtn = document.getElementById('save-my-problem-btn');
 const addPackBtn = document.getElementById('add-pack-btn');
 const packFileInput = document.getElementById('pack-file-input');
+const packImportChoiceModal = document.getElementById('pack-import-choice-modal');
+const packImportFileBtn = document.getElementById('pack-import-file-btn');
+const packImportCameraBtn = document.getElementById('pack-import-camera-btn');
+const cameraScanModal = document.getElementById('camera-scan-modal');
+const cameraScanVideo = document.getElementById('camera-scan-video');
+const cameraScanProgress = document.getElementById('camera-scan-progress');
+const cameraScanStatus = document.getElementById('camera-scan-status');
+const cameraScanCancelBtn = document.getElementById('camera-scan-cancel-btn');
+const cameraScanCloseBtn = document.getElementById('camera-scan-close-btn');
+const qrSendModal = document.getElementById('qr-send-modal');
+const qrSendVideo = document.getElementById('qr-send-video');
+const qrSendPlayStatus = document.getElementById('qr-send-play-status');
+const qrSendPlayBtn = document.getElementById('qr-send-play-btn');
+const qrSendSaveBtn = document.getElementById('qr-send-save-btn');
 const inputText = document.getElementById('input-text');
 const packGrid = document.querySelector('.pack-grid');
 
@@ -45,6 +59,10 @@ let isProcessCanceled = false;
 let currentTargetProblems = [];
 let currentModalMode = 'export'; // 'export' | 'import_txt' | 'save_my_pack'
 let pendingImportRawText = '';
+let isCameraScanCanceled = false;
+let qrSendObjectUrl = null;
+let qrSendBlob = null;
+let qrSendFilename = 'Q-One問題パック.mp4';
 
 // ============================================================================
 // プログレスUI制御
@@ -116,6 +134,57 @@ function triggerDownload(blob, filename) {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+}
+
+function closeQrSendModal() {
+    qrSendModal?.classList.remove('active');
+    if (qrSendVideo) {
+        qrSendVideo.pause();
+        qrSendVideo.removeAttribute('src');
+        qrSendVideo.load();
+    }
+    if (qrSendObjectUrl) {
+        URL.revokeObjectURL(qrSendObjectUrl);
+        qrSendObjectUrl = null;
+    }
+    qrSendBlob = null;
+}
+
+function openQrSendModal(blob, filename) {
+    closeQrSendModal();
+    qrSendBlob = blob;
+    qrSendFilename = filename;
+    qrSendObjectUrl = URL.createObjectURL(blob);
+    if (qrSendVideo) {
+        qrSendVideo.src = qrSendObjectUrl;
+        qrSendVideo.loop = true;
+        qrSendVideo.muted = true;
+        qrSendVideo.autoplay = true;
+        qrSendVideo.playsInline = true;
+    }
+    if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生を準備しています';
+    if (qrSendPlayBtn) qrSendPlayBtn.hidden = true;
+    qrSendModal?.classList.add('active');
+
+    if (qrSendVideo) {
+        const playPromise = qrSendVideo.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.then(() => {
+                if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生中';
+            }).catch(() => {
+                if (qrSendPlayStatus) qrSendPlayStatus.textContent = '再生ボタンを押してください';
+                if (qrSendPlayBtn) qrSendPlayBtn.hidden = false;
+            });
+        }
+    }
+}
+
+function openPackImportChoice() {
+    packImportChoiceModal?.classList.add('active');
+}
+
+function closePackImportChoice() {
+    packImportChoiceModal?.classList.remove('active');
 }
 
 // ============================================================================
@@ -246,11 +315,12 @@ async function executeModalAction() {
             if (isProcessCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
             updateProgressUI(1.0, '動画ファイルの生成が完了しました！');
             const filename = `${title.replace(/[\s\W]/g, '_')}_${Date.now()}.mp4`;
+            // 従来どおりMP4を保存しつつ、送信画面では同じ動画をループ再生する。
             triggerDownload(videoBlob, filename);
             setTimeout(() => {
                 hideProgressModal();
-                alert(`問題パックを保存しました。\nファイル名: ${filename}`);
-            }, 500);
+                openQrSendModal(videoBlob, filename);
+            }, 350);
         } catch (err) {
             if (err?.name === 'AbortError' || isProcessCanceled) {
                 if (progressStatus) progressStatus.textContent = 'キャンセルしました。';
@@ -376,6 +446,87 @@ export async function loadSavedPacksFromDB() {
     } catch (err) { console.error('[Q-One:Error] パック描画失敗:', err); }
 }
 
+async function registerPackFromRestoredText(rawRestoredText, fallbackTitle = '読み込んだ問題パック') {
+    const { meta, text: pureText } = extractMetadataAndText(rawRestoredText);
+    const parsedProblems = parsePackText(pureText);
+    const packId = createPackId();
+    const problemsWithPackId = parsedProblems.map((problem, index) => ({
+        ...problem,
+        packId,
+        questionId: problem.questionId || `q_${index + 1}`,
+        revision: Number.isInteger(problem.revision) ? problem.revision : 1
+    }));
+
+    const packRecord = {
+        id: packId,
+        title: meta?.title || fallbackTitle,
+        category: meta?.category || '問題パック',
+        themeColor: meta?.themeColor || 'blue',
+        rawText: pureText,
+        problems: problemsWithPackId,
+        count: problemsWithPackId.length,
+        createdAt: meta?.createdAt || Date.now()
+    };
+
+    await DB.put('packs', packRecord);
+    const newCardEl = createPackCardElement(packRecord);
+    newCardEl.setAttribute('data-dynamic', 'true');
+    if (packGrid) packGrid.appendChild(newCardEl);
+    if (inputText) inputText.value = pureText;
+    return { packRecord, newCardEl };
+}
+
+function closeCameraScanModal() {
+    isCameraScanCanceled = true;
+    cameraScanModal?.classList.remove('active');
+}
+
+async function startCameraImport() {
+    if (!packGrid) {
+        alert('問題パック一覧が見つからないため、読み込みを開始できません。');
+        return;
+    }
+    isCameraScanCanceled = false;
+    if (cameraScanProgress) cameraScanProgress.style.width = '0%';
+    if (cameraScanStatus) cameraScanStatus.textContent = 'カメラを起動しています...';
+    cameraScanModal?.classList.add('active');
+
+    try {
+        const rawRestoredText = await decodeFromCamera(
+            cameraScanVideo,
+            (ratio, message) => {
+                if (cameraScanProgress) cameraScanProgress.style.width = `${Math.min(100, Math.max(0, ratio * 100))}%`;
+                if (message && cameraScanStatus) cameraScanStatus.textContent = message;
+            },
+            () => isCameraScanCanceled
+        );
+        if (isCameraScanCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
+        cameraScanModal?.classList.remove('active');
+
+        showProgressModal('問題パックを保存中...');
+        if (progressCancelBtn) {
+            progressCancelBtn.disabled = true;
+            progressCancelBtn.style.display = 'none';
+        }
+        const { packRecord, newCardEl } = await registerPackFromRestoredText(rawRestoredText, 'カメラから読み込んだ問題パック');
+        updateProgressUI(1, '復元・登録が完了しました。');
+        setTimeout(() => {
+            hideProgressModal();
+            newCardEl?.click();
+            alert(`「${packRecord.title}」(${packRecord.count}問) を読み込みました！`);
+        }, 300);
+    } catch (error) {
+        cameraScanModal?.classList.remove('active');
+        hideProgressModal();
+        if (error?.name === 'AbortError' || isCameraScanCanceled) {
+            console.info('[Q-One] カメラ読み取りを停止しました。');
+        } else {
+            console.error('[Q-One:Error] カメラ読み取りエラー:', error);
+            alert(`カメラでの読み込みに失敗しました。\n${error.message || error}`);
+        }
+    }
+}
+
 async function handleImportPack(file) {
     if (!file) return;
     const extension = file.name.toLowerCase().split('.').pop();
@@ -421,27 +572,6 @@ async function handleImportPack(file) {
         if (isProcessCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
         updateProgressUI(0.95, 'データを検証中...');
 
-        const { meta, text: pureText } = extractMetadataAndText(rawRestoredText);
-        const parsedProblems = parsePackText(pureText);
-        const packId = createPackId();
-        const problemsWithPackId = parsedProblems.map((problem, index) => ({
-            ...problem,
-            packId,
-            questionId: problem.questionId || `q_${index + 1}`,
-            revision: Number.isInteger(problem.revision) ? problem.revision : 1
-        }));
-
-        const packRecord = {
-            id: packId,
-            title: meta?.title || file.name.replace(/\.[^/.]+$/, ''),
-            category: meta?.category || '問題パック',
-            themeColor: meta?.themeColor || 'blue',
-            rawText: pureText,
-            problems: problemsWithPackId,
-            count: problemsWithPackId.length,
-            createdAt: meta?.createdAt || Date.now()
-        };
-
         if (isProcessCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
         // 保存処理に入った後は中断できないため、コミット中はキャンセル操作を無効化する。
         if (progressStatus) progressStatus.textContent = '問題パックを保存中...';
@@ -449,16 +579,13 @@ async function handleImportPack(file) {
             progressCancelBtn.disabled = true;
             progressCancelBtn.style.display = 'none';
         }
-        await DB.put('packs', packRecord);
-        const newCardEl = createPackCardElement(packRecord);
-        newCardEl.setAttribute('data-dynamic', 'true');
-        packGrid.appendChild(newCardEl);
-        if (inputText) inputText.value = pureText;
+        const fallbackTitle = file.name.replace(/\.[^/.]+$/, '');
+        const { packRecord, newCardEl } = await registerPackFromRestoredText(rawRestoredText, fallbackTitle);
 
         updateProgressUI(1.0, '復元＆登録完了！');
         setTimeout(() => {
             hideProgressModal();
-            newCardEl.click();
+            newCardEl?.click();
             alert(`「${packRecord.title}」(${packRecord.count}問) を読み込みました！`);
         }, 300);
     } catch (error) {
@@ -580,12 +707,47 @@ export function initPackManager() {
     if (confirmPackModalBtn) confirmPackModalBtn.addEventListener('click', executeModalAction);
 
     if (addPackBtn && packFileInput) {
-        addPackBtn.addEventListener('click', () => packFileInput.click());
+        addPackBtn.addEventListener('click', openPackImportChoice);
         packFileInput.addEventListener('change', (e) => {
             const file = e.target.files && e.target.files[0];
             if (file) handleImportPack(file);
         });
     }
+
+    packImportChoiceModal?.querySelectorAll('[data-close-import-choice]').forEach(element => {
+        element.addEventListener('click', closePackImportChoice);
+    });
+    packImportFileBtn?.addEventListener('click', () => {
+        closePackImportChoice();
+        packFileInput?.click();
+    });
+    packImportCameraBtn?.addEventListener('click', () => {
+        closePackImportChoice();
+        startCameraImport();
+    });
+
+    cameraScanCancelBtn?.addEventListener('click', closeCameraScanModal);
+    cameraScanCloseBtn?.addEventListener('click', closeCameraScanModal);
+
+    qrSendModal?.querySelectorAll('[data-close-qr-send]').forEach(element => {
+        element.addEventListener('click', closeQrSendModal);
+    });
+    qrSendSaveBtn?.addEventListener('click', () => {
+        if (qrSendBlob) triggerDownload(qrSendBlob, qrSendFilename);
+    });
+    qrSendPlayBtn?.addEventListener('click', async () => {
+        try {
+            await qrSendVideo?.play();
+            if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生中';
+            qrSendPlayBtn.hidden = true;
+        } catch (error) {
+            if (qrSendPlayStatus) qrSendPlayStatus.textContent = '再生できませんでした。もう一度お試しください。';
+        }
+    });
+    qrSendVideo?.addEventListener('playing', () => {
+        if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生中';
+        if (qrSendPlayBtn) qrSendPlayBtn.hidden = true;
+    });
 
     if (progressCancelBtn) {
         progressCancelBtn.addEventListener('click', () => {
