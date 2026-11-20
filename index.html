@@ -1516,12 +1516,13 @@
         .pack-import-method-text strong { font-size: .96rem; }
         .pack-import-method-text small { color: var(--secondary-color); font-size: .78rem; }
 
-        .camera-scan-modal-content, .qr-send-modal-content { width: min(94%, 620px); max-width: 620px; padding: 1.25rem; }
-        .camera-scan-modal-content h3, .qr-send-modal-content h3 { margin: 0 2.5rem .35rem 0; font-size: 1.2rem; }
-        .camera-scan-description, .qr-send-description { margin: 0 0 1rem; color: var(--secondary-color); font-size: .88rem; line-height: 1.55; }
+        .camera-scan-modal-content { width: min(96vw, 760px); max-width: 760px; padding: 1rem; }
+        .camera-scan-modal-content h3 { margin: 0 2.5rem .35rem 0; font-size: 1.2rem; }
+        .camera-scan-description { margin: 0 0 .65rem; color: var(--secondary-color); font-size: .86rem; line-height: 1.45; }
         .camera-preview-frame {
-            position: relative; display: flex; align-items: center; justify-content: center; width: 100%;
-            aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--radius-md); background: #111827;
+            position: relative; display: flex; align-items: center; justify-content: center;
+            width: 100%; max-width: 100%; margin: 0 auto; min-width: 0; min-height: 0;
+            overflow: hidden; border-radius: var(--radius-md); background: #111827;
         }
         #camera-scan-video { display: block; width: 100%; height: 100%; object-fit: contain; }
         .camera-scan-guide {
@@ -1529,21 +1530,12 @@
             border: 2px solid rgba(255,255,255,.9); border-radius: 12px; transform: translate(-50%, -50%);
             box-shadow: 0 0 0 999px rgba(0,0,0,.12); pointer-events: none;
         }
-        .camera-scan-info { margin-top: .9rem; }
+        .camera-scan-info { width: 100%; flex: 0 0 auto; margin-top: .65rem; }
         .camera-scan-progress-bg { width: 100%; height: 9px; overflow: hidden; border-radius: 99px; background: var(--light-bg); border: 1px solid var(--border-color); }
         .camera-scan-progress-fill { width: 0%; height: 100%; background: var(--primary-color); transition: width .18s ease; }
-        .camera-scan-status { min-height: 1.5em; margin: .55rem 0 0; color: var(--secondary-color); font-size: .88rem; text-align: center; }
-        .camera-scan-actions, .qr-send-actions { display: flex; gap: .65rem; justify-content: flex-end; margin-top: 1rem; }
-        .camera-scan-actions button, .qr-send-actions button { min-width: 112px; }
-        .qr-send-video-wrap { width: min(100%, 460px); aspect-ratio: 1 / 1; margin: .7rem auto 1rem; background: #111827; border-radius: var(--radius-md); overflow: hidden; }
-        #qr-send-video { display: block; width: 100%; height: 100%; object-fit: contain; }
-        .qr-send-loop-status { display: flex; justify-content: center; align-items: center; gap: .45rem; color: var(--success-text-on-bg); font-size: .88rem; font-weight: 650; }
-        .qr-send-loop-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success-color); box-shadow: 0 0 0 3px var(--success-bg); }
-        @media (max-width: 520px) {
-            .camera-scan-modal-content, .qr-send-modal-content { padding: 1rem; }
-            .camera-scan-actions, .qr-send-actions { flex-direction: column-reverse; }
-            .camera-scan-actions button, .qr-send-actions button { width: 100%; }
-        }
+        .camera-scan-status { min-height: 1.35em; margin: .45rem 0 0; color: var(--secondary-color); font-size: .84rem; text-align: center; }
+        .camera-scan-actions { display: flex; flex: 0 0 auto; gap: .65rem; justify-content: center; margin-top: .65rem; }
+        .camera-scan-actions button { min-width: 112px; }
 
         /* ===== 簡易間隔反復 4段階自己評価ボタン ===== */
         #review-rating-container {
@@ -1630,6 +1622,52 @@
             overscroll-behavior: contain;
             padding: clamp(1.1rem, 4vw, 2rem);
             padding-bottom: max(clamp(1.1rem, 4vw, 2rem), env(safe-area-inset-bottom));
+        }
+        /* カメラ読み取り画面はスクロールさせず、端末の表示領域内に固定する。 */
+        .camera-scan-modal {
+            box-sizing: border-box;
+            padding: max(6px, env(safe-area-inset-top)) 8px max(6px, env(safe-area-inset-bottom));
+        }
+        .camera-scan-modal .camera-scan-modal-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            width: min(96vw, 760px);
+            height: auto;
+            max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px);
+            overflow: hidden;
+            overscroll-behavior: none;
+            padding: clamp(.65rem, 2.2vh, 1.1rem);
+            padding-bottom: max(clamp(.65rem, 2.2vh, 1.1rem), env(safe-area-inset-bottom));
+        }
+        .camera-scan-modal .camera-scan-modal-content h3,
+        .camera-scan-modal .camera-scan-description { width: 100%; flex: 0 0 auto; }
+        .camera-scan-modal .camera-scan-description {
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+            margin-bottom: .55rem;
+            font-size: clamp(.72rem, 1.7vh, .86rem);
+            line-height: 1.35;
+        }
+        .camera-scan-modal .camera-preview-frame {
+            flex: 0 1 auto;
+            min-height: 100px;
+            max-height: min(56dvh, 560px);
+        }
+        .camera-scan-modal .camera-scan-actions button { min-height: 42px; }
+        @media (max-height: 600px) {
+            .camera-scan-modal .camera-scan-description { -webkit-line-clamp: 1; margin-bottom: .3rem; }
+            .camera-scan-modal .camera-preview-frame { max-height: 43dvh; min-height: 88px; }
+            .camera-scan-modal .camera-scan-info { margin-top: .35rem; }
+            .camera-scan-modal .camera-scan-actions { margin-top: .35rem; }
+        }
+        @media (max-width: 520px) {
+            .camera-scan-modal .camera-scan-modal-content { width: 96vw; padding: .7rem; }
+            .camera-scan-modal .camera-scan-actions { width: 100%; }
+            .camera-scan-modal .camera-scan-actions button { width: 100%; }
         }
         body.modal-open { overflow: hidden; }
         .info-screen { overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -2269,13 +2307,13 @@
     </div>
 
     <!-- カメラによる連続QR読み取り -->
-    <div id="camera-scan-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="camera-scan-title">
+    <div id="camera-scan-modal" class="modal camera-scan-modal" role="dialog" aria-modal="true" aria-labelledby="camera-scan-title">
         <div class="modal-overlay"></div>
         <div class="modal-content camera-scan-modal-content">
             <button id="camera-scan-close-btn" class="modal-close-btn" type="button" aria-label="読み取りを停止">×</button>
             <h3 id="camera-scan-title">カメラで読み取り</h3>
             <p class="camera-scan-description">送信側でQR動画をループ再生し、ガイド内にQRコード全体が入るように映してください。多少傾いていても読み取れます。すべてのQRを受信するまで自動で読み取りを続けます。</p>
-            <div class="camera-preview-frame">
+            <div id="camera-preview-frame" class="camera-preview-frame">
                 <video id="camera-scan-video" autoplay muted playsinline></video>
                 <div class="camera-scan-guide" aria-hidden="true"></div>
             </div>
@@ -2285,23 +2323,6 @@
             </div>
             <div class="camera-scan-actions">
                 <button id="camera-scan-cancel-btn" class="cancel-btn" type="button">読み取りを停止</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 生成したQR動画のループ再生 -->
-    <div id="qr-send-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="qr-send-title">
-        <div class="modal-overlay" data-close-qr-send></div>
-        <div class="modal-content qr-send-modal-content">
-            <button class="modal-close-btn" type="button" aria-label="閉じる" data-close-qr-send>×</button>
-            <h3 id="qr-send-title">QR動画を送信</h3>
-            <p class="qr-send-description">受信側の端末で「カメラ映像から」を選び、この画面にカメラを向けてください。動画は自動でループ再生されます。</p>
-            <div class="qr-send-video-wrap"><video id="qr-send-video" autoplay muted loop playsinline></video></div>
-            <div class="qr-send-loop-status"><span class="qr-send-loop-dot" aria-hidden="true"></span><span id="qr-send-play-status">ループ再生中</span></div>
-            <div class="qr-send-actions">
-                <button id="qr-send-play-btn" class="btn-secondary" type="button" hidden>再生する</button>
-                <button id="qr-send-save-btn" class="btn-secondary" type="button">動画を保存</button>
-                <button class="btn-primary" type="button" data-close-qr-send>閉じる</button>
             </div>
         </div>
     </div>
