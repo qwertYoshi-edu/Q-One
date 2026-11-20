@@ -22,11 +22,7 @@ const cameraScanProgress = document.getElementById('camera-scan-progress');
 const cameraScanStatus = document.getElementById('camera-scan-status');
 const cameraScanCancelBtn = document.getElementById('camera-scan-cancel-btn');
 const cameraScanCloseBtn = document.getElementById('camera-scan-close-btn');
-const qrSendModal = document.getElementById('qr-send-modal');
-const qrSendVideo = document.getElementById('qr-send-video');
-const qrSendPlayStatus = document.getElementById('qr-send-play-status');
-const qrSendPlayBtn = document.getElementById('qr-send-play-btn');
-const qrSendSaveBtn = document.getElementById('qr-send-save-btn');
+const cameraPreviewFrame = document.getElementById('camera-preview-frame');
 const inputText = document.getElementById('input-text');
 const packGrid = document.querySelector('.pack-grid');
 
@@ -60,9 +56,6 @@ let currentTargetProblems = [];
 let currentModalMode = 'export'; // 'export' | 'import_txt' | 'save_my_pack'
 let pendingImportRawText = '';
 let isCameraScanCanceled = false;
-let qrSendObjectUrl = null;
-let qrSendBlob = null;
-let qrSendFilename = 'Q-One問題パック.mp4';
 
 // ============================================================================
 // プログレスUI制御
@@ -136,47 +129,63 @@ function triggerDownload(blob, filename) {
     setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
 }
 
-function closeQrSendModal() {
-    qrSendModal?.classList.remove('active');
-    if (qrSendVideo) {
-        qrSendVideo.pause();
-        qrSendVideo.removeAttribute('src');
-        qrSendVideo.load();
-    }
-    if (qrSendObjectUrl) {
-        URL.revokeObjectURL(qrSendObjectUrl);
-        qrSendObjectUrl = null;
-    }
-    qrSendBlob = null;
-}
-
-function openQrSendModal(blob, filename) {
-    closeQrSendModal();
-    qrSendBlob = blob;
-    qrSendFilename = filename;
-    qrSendObjectUrl = URL.createObjectURL(blob);
-    if (qrSendVideo) {
-        qrSendVideo.src = qrSendObjectUrl;
-        qrSendVideo.loop = true;
-        qrSendVideo.muted = true;
-        qrSendVideo.autoplay = true;
-        qrSendVideo.playsInline = true;
-    }
-    if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生を準備しています';
-    if (qrSendPlayBtn) qrSendPlayBtn.hidden = true;
-    qrSendModal?.classList.add('active');
-
-    if (qrSendVideo) {
-        const playPromise = qrSendVideo.play();
-        if (playPromise && typeof playPromise.catch === 'function') {
-            playPromise.then(() => {
-                if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生中';
-            }).catch(() => {
-                if (qrSendPlayStatus) qrSendPlayStatus.textContent = '再生ボタンを押してください';
-                if (qrSendPlayBtn) qrSendPlayBtn.hidden = false;
+/**
+ * MP4を端末標準の共有シートへ渡す。
+ * iOSでは「ビデオを保存」など、Androidでは端末にある共有先が表示される。
+ * Web Share API非対応・共有失敗時は従来のダウンロードへフォールバックする。
+ */
+async function shareOrDownloadVideo(blob, filename) {
+    if (typeof File !== 'undefined' && typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function') {
+        try {
+            const file = new File([blob], filename, {
+                type: 'video/mp4',
+                lastModified: Date.now()
             });
+            if (navigator.canShare({ files: [file] })) {
+                try {
+                    // 生成完了直後に呼び出し、ネイティブ共有UIへMP4を渡す。
+                    await navigator.share({ files: [file], title: 'Q-One問題パック' });
+                    return 'shared';
+                } catch (error) {
+                    // ユーザーが共有シートを閉じた場合、意図しないダウンロードは行わない。
+                    if (error?.name === 'AbortError') return 'cancelled';
+                    console.warn('[Q-One] ネイティブ共有を利用できないため、通常のダウンロードに切り替えます:', error);
+                }
+            }
+        } catch (error) {
+            console.warn('[Q-One] ファイル共有の事前判定に失敗しました:', error);
         }
     }
+
+    triggerDownload(blob, filename);
+    return 'downloaded';
+}
+
+function fitCameraPreview() {
+    if (!cameraScanVideo || !cameraPreviewFrame) return;
+    const sourceWidth = cameraScanVideo.videoWidth;
+    const sourceHeight = cameraScanVideo.videoHeight;
+    if (!sourceWidth || !sourceHeight) return;
+
+    // ストリームの縦横比を保ったまま、画面内で最大になるサイズにする。
+    const viewport = window.visualViewport;
+    const viewportWidth = viewport?.width || window.innerWidth;
+    const viewportHeight = viewport?.height || window.innerHeight;
+    const maxWidth = Math.min(viewportWidth * 0.94, 720);
+    const heightRatio = viewportWidth < viewportHeight ? 0.56 : 0.48;
+    const maxHeight = Math.min(viewportHeight * heightRatio, 560);
+    const aspectRatio = sourceWidth / sourceHeight;
+
+    let width = maxWidth;
+    let height = width / aspectRatio;
+    if (height > maxHeight) {
+        height = maxHeight;
+        width = height * aspectRatio;
+    }
+
+    cameraPreviewFrame.style.width = `${Math.max(120, Math.floor(width))}px`;
+    cameraPreviewFrame.style.height = `${Math.max(90, Math.floor(height))}px`;
 }
 
 function openPackImportChoice() {
@@ -315,12 +324,14 @@ async function executeModalAction() {
             if (isProcessCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
             updateProgressUI(1.0, '動画ファイルの生成が完了しました！');
             const filename = `${title.replace(/[\s\W]/g, '_')}_${Date.now()}.mp4`;
-            // 従来どおりMP4を保存しつつ、送信画面では同じ動画をループ再生する。
-            triggerDownload(videoBlob, filename);
-            setTimeout(() => {
-                hideProgressModal();
-                openQrSendModal(videoBlob, filename);
-            }, 350);
+            // アプリ独自の自動再生モーダルは開かず、OS標準の共有シートを呼び出す。
+            hideProgressModal();
+            const saveResult = await shareOrDownloadVideo(videoBlob, filename);
+            if (saveResult === 'downloaded') {
+                alert('この端末では標準の共有シートを利用できないため、動画をダウンロードしました。');
+            } else if (saveResult === 'cancelled') {
+                console.info('[Q-One] 動画の共有・保存をキャンセルしました。');
+            }
         } catch (err) {
             if (err?.name === 'AbortError' || isProcessCanceled) {
                 if (progressStatus) progressStatus.textContent = 'キャンセルしました。';
@@ -489,6 +500,10 @@ async function startCameraImport() {
     isCameraScanCanceled = false;
     if (cameraScanProgress) cameraScanProgress.style.width = '0%';
     if (cameraScanStatus) cameraScanStatus.textContent = 'カメラを起動しています...';
+    if (cameraPreviewFrame) {
+        cameraPreviewFrame.style.width = '';
+        cameraPreviewFrame.style.height = '';
+    }
     cameraScanModal?.classList.add('active');
 
     try {
@@ -728,26 +743,11 @@ export function initPackManager() {
 
     cameraScanCancelBtn?.addEventListener('click', closeCameraScanModal);
     cameraScanCloseBtn?.addEventListener('click', closeCameraScanModal);
-
-    qrSendModal?.querySelectorAll('[data-close-qr-send]').forEach(element => {
-        element.addEventListener('click', closeQrSendModal);
-    });
-    qrSendSaveBtn?.addEventListener('click', () => {
-        if (qrSendBlob) triggerDownload(qrSendBlob, qrSendFilename);
-    });
-    qrSendPlayBtn?.addEventListener('click', async () => {
-        try {
-            await qrSendVideo?.play();
-            if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生中';
-            qrSendPlayBtn.hidden = true;
-        } catch (error) {
-            if (qrSendPlayStatus) qrSendPlayStatus.textContent = '再生できませんでした。もう一度お試しください。';
-        }
-    });
-    qrSendVideo?.addEventListener('playing', () => {
-        if (qrSendPlayStatus) qrSendPlayStatus.textContent = 'ループ再生中';
-        if (qrSendPlayBtn) qrSendPlayBtn.hidden = true;
-    });
+    cameraScanVideo?.addEventListener('loadedmetadata', fitCameraPreview);
+    cameraScanVideo?.addEventListener('resize', fitCameraPreview);
+    window.addEventListener('resize', fitCameraPreview, { passive: true });
+    window.addEventListener('orientationchange', () => requestAnimationFrame(fitCameraPreview), { passive: true });
+    window.visualViewport?.addEventListener('resize', fitCameraPreview, { passive: true });
 
     if (progressCancelBtn) {
         progressCancelBtn.addEventListener('click', () => {

@@ -16,7 +16,8 @@ const SETTINGS = {
     ec: 'H',
     modulePx: 4,
     extraMargin: 6,
-    fps: 5,
+    // 生成動画の再生テンポとカメラ読み取りの両立を図る。
+    fps: 8,
     bitrateMbps: 4,
     reserve: 1,
     align16: true,
@@ -854,12 +855,15 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
     try {
         if (typeof onProgress === 'function') onProgress(0, 'カメラを起動しています...');
         try {
+            const portraitDisplay = window.matchMedia?.('(orientation: portrait)').matches ??
+                window.innerHeight >= window.innerWidth;
             stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: {
                     facingMode: { ideal: 'environment' },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
+                    // 端末の向きに近い映像比率を要求し、縦持ち時のプレビュー縮小を防ぐ。
+                    width: { ideal: portraitDisplay ? 720 : 1280 },
+                    height: { ideal: portraitDisplay ? 1280 : 720 },
                     frameRate: { ideal: 15, max: 20 }
                 }
             });
