@@ -16,8 +16,7 @@ const SETTINGS = {
     ec: 'H',
     modulePx: 4,
     extraMargin: 6,
-    // 生成動画の再生テンポとカメラ読み取りの両立を図る。
-    fps: 8,
+    fps: 3,
     bitrateMbps: 4,
     reserve: 1,
     align16: true,
