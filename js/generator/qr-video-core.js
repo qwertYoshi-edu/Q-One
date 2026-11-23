@@ -829,7 +829,7 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
 // -------------------------
 // Decode (Live Camera -> Worker jsQR)
 // -------------------------
-export async function decodeFromCamera(videoElement, onProgress, isStopped = () => false) {
+export async function decodeFromCamera(videoElement, onProgress, isStopped = () => false, guideElement = null) {
     const throwIfStopped = () => {
         if (isStopped()) {
             const error = new Error('ユーザーによってキャンセルされました。');
@@ -900,15 +900,61 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
 
         const sourceWidth = videoElement.videoWidth;
         const sourceHeight = videoElement.videoHeight;
-        // 画面中央の読み取りガイドに合わせて正方形ROIを切り出す。
-        // 全画面を解析するより画素数を抑えられ、Version 40の高密度QRでも
-        // モバイル端末の解析待ちが長くなりにくい。
-        const scanRegionSize = Math.max(1, Math.floor(Math.min(sourceWidth, sourceHeight) * 0.96));
-        const sourceX = Math.floor((sourceWidth - scanRegionSize) / 2);
-        const sourceY = Math.floor((sourceHeight - scanRegionSize) / 2);
-        const scanScale = Math.min(1, 960 / scanRegionSize);
-        const width = Math.max(1, Math.round(scanRegionSize * scanScale));
-        const height = width;
+
+        // ガイドの実際の表示位置を、object-fit: contain で描画された
+        // カメラ映像のピクセル座標へ変換する。画面比率とカメラ比率が
+        // 異なる端末でも、表示ガイドと解析ROIがずれないようにする。
+        // loadedmetadata後にCSSレイアウトが反映される時間を確保する。
+        await sleep(50);
+        const videoRect = videoElement.getBoundingClientRect();
+        const guideRect = guideElement?.getBoundingClientRect?.();
+        const containScale = Math.min(
+            videoRect.width / sourceWidth,
+            videoRect.height / sourceHeight
+        );
+        if (!Number.isFinite(containScale) || containScale <= 0) {
+            throw new Error('カメラ映像の表示領域を取得できません。');
+        }
+
+        const contentWidth = sourceWidth * containScale;
+        const contentHeight = sourceHeight * containScale;
+        const contentLeft = videoRect.left + (videoRect.width - contentWidth) / 2;
+        const contentTop = videoRect.top + (videoRect.height - contentHeight) / 2;
+
+        let guideLeft;
+        let guideTop;
+        let guideWidth;
+        let guideHeight;
+        if (guideRect && guideRect.width > 0 && guideRect.height > 0) {
+            guideLeft = (guideRect.left - contentLeft) / containScale;
+            guideTop = (guideRect.top - contentTop) / containScale;
+            guideWidth = guideRect.width / containScale;
+            guideHeight = guideRect.height / containScale;
+        } else {
+            // ガイド要素を取得できない場合のみ、従来互換の中央領域を使う。
+            guideWidth = Math.min(sourceWidth, sourceHeight) * 0.68;
+            guideHeight = guideWidth;
+            guideLeft = (sourceWidth - guideWidth) / 2;
+            guideTop = (sourceHeight - guideHeight) / 2;
+        }
+
+        // ガイドの各辺から2.5%ずつ余白を追加（全体で約5%広い範囲）。
+        // 枠ぎりぎりに映ったQRの位置検出パターンが切れるのを防ぐ。
+        const marginX = guideWidth * 0.025;
+        const marginY = guideHeight * 0.025;
+        const sourceX = Math.max(0, Math.floor(guideLeft - marginX));
+        const sourceY = Math.max(0, Math.floor(guideTop - marginY));
+        const sourceRight = Math.min(sourceWidth, Math.ceil(guideLeft + guideWidth + marginX));
+        const sourceBottom = Math.min(sourceHeight, Math.ceil(guideTop + guideHeight + marginY));
+        const scanRegionWidth = Math.max(1, sourceRight - sourceX);
+        const scanRegionHeight = Math.max(1, sourceBottom - sourceY);
+
+        // 高密度QRの読み取りに必要な画素数を維持する。
+        // 1600pxを超えるカメラ映像だけ、処理負荷を抑えるため縮小する。
+        const maxScanDimension = 1600;
+        const scanScale = Math.min(1, maxScanDimension / Math.max(scanRegionWidth, scanRegionHeight));
+        const width = Math.max(1, Math.round(scanRegionWidth * scanScale));
+        const height = Math.max(1, Math.round(scanRegionHeight * scanScale));
         frameCanvas = document.createElement('canvas');
         frameCanvas.width = width;
         frameCanvas.height = height;
@@ -1079,7 +1125,7 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                 try {
                     frameContext.drawImage(
                         videoElement,
-                        sourceX, sourceY, scanRegionSize, scanRegionSize,
+                        sourceX, sourceY, scanRegionWidth, scanRegionHeight,
                         0, 0, width, height
                     );
                     const imageData = frameContext.getImageData(0, 0, width, height);

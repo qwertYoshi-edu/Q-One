@@ -23,6 +23,7 @@ const cameraScanStatus = document.getElementById('camera-scan-status');
 const cameraScanCancelBtn = document.getElementById('camera-scan-cancel-btn');
 const cameraScanCloseBtn = document.getElementById('camera-scan-close-btn');
 const cameraPreviewFrame = document.getElementById('camera-preview-frame');
+const cameraScanGuide = document.querySelector('#camera-preview-frame .camera-scan-guide');
 const inputText = document.getElementById('input-text');
 const packGrid = document.querySelector('.pack-grid');
 
@@ -184,8 +185,27 @@ function fitCameraPreview() {
         width = height * aspectRatio;
     }
 
-    cameraPreviewFrame.style.width = `${Math.max(120, Math.floor(width))}px`;
-    cameraPreviewFrame.style.height = `${Math.max(90, Math.floor(height))}px`;
+    const fittedWidth = Math.max(120, Math.floor(width));
+    const fittedHeight = Math.max(90, Math.floor(height));
+    cameraPreviewFrame.style.width = `${fittedWidth}px`;
+    cameraPreviewFrame.style.height = `${fittedHeight}px`;
+
+    // 正方形ガイドがプレビューの外へはみ出さないよう、幅と高さの
+    // 両方を基準にサイズを決める。解析側はこの実寸矩形を参照する。
+    if (cameraScanGuide) {
+        // CSSのobject-fit: containで実際に表示される映像領域を基準にする。
+        // frameの外寸ではなく、レターボックスを除いた映像そのものに枠を収める。
+        const videoRect = cameraScanVideo.getBoundingClientRect();
+        const scale = Math.min(
+            videoRect.width / sourceWidth,
+            videoRect.height / sourceHeight
+        );
+        const renderedWidth = sourceWidth * scale;
+        const renderedHeight = sourceHeight * scale;
+        const guideSize = Math.max(1, Math.floor(Math.min(renderedWidth * 0.68, renderedHeight * 0.78, 310)));
+        cameraScanGuide.style.width = `${guideSize}px`;
+        cameraScanGuide.style.height = `${guideSize}px`;
+    }
 }
 
 function openPackImportChoice() {
@@ -513,7 +533,8 @@ async function startCameraImport() {
                 if (cameraScanProgress) cameraScanProgress.style.width = `${Math.min(100, Math.max(0, ratio * 100))}%`;
                 if (message && cameraScanStatus) cameraScanStatus.textContent = message;
             },
-            () => isCameraScanCanceled
+            () => isCameraScanCanceled,
+            cameraScanGuide
         );
         if (isCameraScanCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
         cameraScanModal?.classList.remove('active');
