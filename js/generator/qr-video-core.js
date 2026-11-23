@@ -865,9 +865,11 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                 audio: false,
                 video: {
                     facingMode: { ideal: 'environment' },
-                    width: { ideal: portraitDisplay ? 720 : 1280 },
-                    height: { ideal: portraitDisplay ? 1280 : 720 },
-                    frameRate: { ideal: 20, max: 30 }
+                    // Version 40の高密度QRを読み取れるよう高解像度を希望する。
+                    // ideal指定なので、端末が対応しない場合は利用可能な解像度へ自動的にフォールバックする。
+                    width: { ideal: portraitDisplay ? 1080 : 1920 },
+                    height: { ideal: portraitDisplay ? 1920 : 1080 },
+                    frameRate: { ideal: 30, max: 30 }
                 }
             });
         } catch (error) {
@@ -904,49 +906,24 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         frameContext = frameCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
         if (!frameContext) throw new Error('カメラ映像を解析するCanvasを初期化できません。');
 
-        // 解析範囲は画面上のガイド枠を実際のカメラ画像座標へ変換して求める。
-        // object-fit: contain による余白を除外し、枠の外側へ各辺3%だけ広げる。
-        // ガイドが取得できない場合は誤った中央切り抜きを避け、映像全体を解析する。
+        // ガイド枠と解析ROIを、実際に表示されているvideo要素の矩形から同じ座標系で計算する。
+        // CSS側でvideoをpreview-frame全面に表示し、fitCameraPreview()が元映像と同じ縦横比に
+        // preview-frameを設定するため、object-fit:containの余白推定は不要。
+        // ガイド枠の外側へ各辺5%を加え、QRのquiet zoneや位置合わせの誤差も含める。
+        const previewElement = guideElement?.parentElement || videoElement.parentElement;
         let scanRegion = null;
+
         const updateScanRegion = () => {
             const sourceWidth = videoElement.videoWidth;
             const sourceHeight = videoElement.videoHeight;
             const videoRect = videoElement.getBoundingClientRect();
-            if (!sourceWidth || !sourceHeight || videoRect.width <= 0 || videoRect.height <= 0) return;
 
-            const containScale = Math.min(
-                videoRect.width / sourceWidth,
-                videoRect.height / sourceHeight
-            );
-            if (!Number.isFinite(containScale) || containScale <= 0) return;
-
-            const contentWidth = sourceWidth * containScale;
-            const contentHeight = sourceHeight * containScale;
-            const contentLeft = videoRect.left + (videoRect.width - contentWidth) / 2;
-            const contentTop = videoRect.top + (videoRect.height - contentHeight) / 2;
-            const contentRight = contentLeft + contentWidth;
-            const contentBottom = contentTop + contentHeight;
-
-            let guideRect = null;
-            if (guideElement?.getBoundingClientRect) {
-                // レイアウト変化時もガイドを映像領域内に保つ。
-                // 横長カメラ映像を縦画面に表示した場合、横幅だけで決めると
-                // ガイドが映像の上下にはみ出すため、短辺も上限に含める。
-                const localWidth = videoElement.clientWidth || videoElement.offsetWidth || videoRect.width;
-                const localHeight = videoElement.clientHeight || videoElement.offsetHeight || videoRect.height;
-                const localContainScale = Math.min(localWidth / sourceWidth, localHeight / sourceHeight);
-                const localContentWidth = sourceWidth * localContainScale;
-                const localContentHeight = sourceHeight * localContainScale;
-                const guideSide = Math.max(1, Math.min(
-                    localContentWidth * 0.68,
-                    localContentHeight * 0.88,
-                    310
-                ));
-                if (Number.isFinite(guideSide) && guideSide > 1) {
-                    guideElement.style.width = `${guideSide}px`;
-                    guideElement.style.height = `${guideSide}px`;
-                }
-                guideRect = guideElement.getBoundingClientRect();
+            if (
+                !sourceWidth || !sourceHeight ||
+                videoRect.width <= 0 || videoRect.height <= 0
+            ) {
+                scanRegion = null;
+                return;
             }
 
             let sourceX = 0;
@@ -954,34 +931,75 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
             let scanRegionWidth = sourceWidth;
             let scanRegionHeight = sourceHeight;
 
-            if (guideRect && guideRect.width > 0 && guideRect.height > 0) {
-                const marginX = guideRect.width * 0.03;
-                const marginY = guideRect.height * 0.03;
-                const left = Math.max(contentLeft, guideRect.left - marginX);
-                const top = Math.max(contentTop, guideRect.top - marginY);
-                const right = Math.min(contentRight, guideRect.right + marginX);
-                const bottom = Math.min(contentBottom, guideRect.bottom + marginY);
+            if (guideElement?.getBoundingClientRect) {
+                // guideはpreview-frameの子要素。枠サイズも同じ親要素の実測値から設定する。
+                const frameRect = previewElement?.getBoundingClientRect?.() || videoRect;
+                const guideSide = Math.max(1, Math.min(
+                    frameRect.width * 0.68,
+                    frameRect.height * 0.88,
+                    310
+                ));
 
-                sourceX = Math.max(0, Math.floor((left - contentLeft) / containScale));
-                sourceY = Math.max(0, Math.floor((top - contentTop) / containScale));
-                const sourceRight = Math.min(sourceWidth, Math.ceil((right - contentLeft) / containScale));
-                const sourceBottom = Math.min(sourceHeight, Math.ceil((bottom - contentTop) / containScale));
-                scanRegionWidth = Math.max(1, sourceRight - sourceX);
-                scanRegionHeight = Math.max(1, sourceBottom - sourceY);
+                if (Number.isFinite(guideSide) && guideSide > 1) {
+                    const nextWidth = `${guideSide}px`;
+                    const nextHeight = `${guideSide}px`;
+                    if (guideElement.style.width !== nextWidth) guideElement.style.width = nextWidth;
+                    if (guideElement.style.height !== nextHeight) guideElement.style.height = nextHeight;
+                }
+
+                const guideRect = guideElement.getBoundingClientRect();
+                if (guideRect.width > 0 && guideRect.height > 0) {
+                    // HTML上の枠を5%ずつ拡張。はみ出した部分は映像端でクリップする。
+                    const marginX = guideRect.width * 0.05;
+                    const marginY = guideRect.height * 0.05;
+                    const left = Math.max(videoRect.left, guideRect.left - marginX);
+                    const top = Math.max(videoRect.top, guideRect.top - marginY);
+                    const right = Math.min(videoRect.right, guideRect.right + marginX);
+                    const bottom = Math.min(videoRect.bottom, guideRect.bottom + marginY);
+
+                    // CSSピクセルからカメラの元画像ピクセルへ直接変換する。
+                    // video要素はpreview-frameと同寸で、映像を全面表示するCSSを前提とする。
+                    const scaleX = sourceWidth / videoRect.width;
+                    const scaleY = sourceHeight / videoRect.height;
+
+                    sourceX = Math.max(0, Math.min(
+                        sourceWidth - 1,
+                        Math.floor((left - videoRect.left) * scaleX)
+                    ));
+                    sourceY = Math.max(0, Math.min(
+                        sourceHeight - 1,
+                        Math.floor((top - videoRect.top) * scaleY)
+                    ));
+
+                    const sourceRight = Math.max(sourceX + 1, Math.min(
+                        sourceWidth,
+                        Math.ceil((right - videoRect.left) * scaleX)
+                    ));
+                    const sourceBottom = Math.max(sourceY + 1, Math.min(
+                        sourceHeight,
+                        Math.ceil((bottom - videoRect.top) * scaleY)
+                    ));
+
+                    scanRegionWidth = sourceRight - sourceX;
+                    scanRegionHeight = sourceBottom - sourceY;
+                }
             }
 
-            // Version 40の細いモジュールを潰さないよう、通常の端末解像度は縮小しない。
-            // 1600pxを超える場合だけ縮小し、元画像以上に拡大することもしない。
+            // Version 40の小さなモジュールを維持するため、通常は縮小しない。
+            // 1600pxを超える場合のみ縮小し、元画像の画素数以上には拡大しない。
             const maxScanDimension = 1600;
-            const scanScale = Math.min(1, maxScanDimension / Math.max(scanRegionWidth, scanRegionHeight));
+            const scanScale = Math.min(
+                1,
+                maxScanDimension / Math.max(scanRegionWidth, scanRegionHeight)
+            );
             const width = Math.max(1, Math.round(scanRegionWidth * scanScale));
             const height = Math.max(1, Math.round(scanRegionHeight * scanScale));
 
-            const dimensionsChanged = frameCanvas.width !== width || frameCanvas.height !== height;
-            if (dimensionsChanged) {
+            if (frameCanvas.width !== width || frameCanvas.height !== height) {
                 frameCanvas.width = width;
                 frameCanvas.height = height;
             }
+
             scanRegion = {
                 sourceX,
                 sourceY,
@@ -994,16 +1012,20 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
             };
         };
 
-        // モーダル表示・CSSレイアウトが反映されてから初回計測する。
-        await sleep(80);
+        // モーダルの表示アニメーションと映像寸法の反映を待ってから初回計測する。
+        await sleep(320);
         updateScanRegion();
         if (!scanRegion) throw new Error('カメラの表示領域を計算できません。画面を開き直してください。');
 
-        // 端末の回転・画面サイズ変更後も、ガイドとROIの位置を同期する。
+        // 端末回転・プレビュー寸法変更・表示枠変更時にROIを再計算する。
         resizeHandler = () => updateScanRegion();
         window.addEventListener('resize', resizeHandler, { passive: true });
+        window.addEventListener('orientationchange', resizeHandler, { passive: true });
+        window.visualViewport?.addEventListener('resize', resizeHandler, { passive: true });
+
         if (typeof ResizeObserver === 'function') {
             resizeObserver = new ResizeObserver(() => updateScanRegion());
+            if (previewElement) resizeObserver.observe(previewElement);
             resizeObserver.observe(videoElement);
             if (guideElement) resizeObserver.observe(guideElement);
         }
@@ -1225,7 +1247,11 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         if (workerReadyTimeoutId !== null) clearTimeout(workerReadyTimeoutId);
         if (workerResponseTimeoutId !== null) clearTimeout(workerResponseTimeoutId);
         if (resizeObserver) resizeObserver.disconnect();
-        if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+        if (resizeHandler) {
+            window.removeEventListener('resize', resizeHandler);
+            window.removeEventListener('orientationchange', resizeHandler);
+            window.visualViewport?.removeEventListener('resize', resizeHandler);
+        }
         if (worker) worker.terminate();
         if (workerUrl) URL.revokeObjectURL(workerUrl);
         if (stream) stream.getTracks().forEach(track => track.stop());

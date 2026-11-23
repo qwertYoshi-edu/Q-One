@@ -165,33 +165,81 @@ async function shareOrDownloadVideo(blob, filename) {
 
 function fitCameraPreview() {
     if (!cameraScanVideo || !cameraPreviewFrame) return;
+
     const sourceWidth = cameraScanVideo.videoWidth;
     const sourceHeight = cameraScanVideo.videoHeight;
     if (!sourceWidth || !sourceHeight) return;
 
-    // ストリームの縦横比を保ったまま、画面内で最大になるサイズにする。
     const viewport = window.visualViewport;
-    const viewportWidth = viewport?.width || window.innerWidth;
-    const viewportHeight = viewport?.height || window.innerHeight;
-    const maxWidth = Math.min(viewportWidth * 0.94, 720);
-    const heightRatio = viewportWidth < viewportHeight ? 0.56 : 0.48;
-    const maxHeight = Math.min(viewportHeight * heightRatio, 560);
-    const aspectRatio = sourceWidth / sourceHeight;
+    const viewportWidth = viewport?.width || document.documentElement.clientWidth || window.innerWidth;
+    const viewportHeight = viewport?.height || document.documentElement.clientHeight || window.innerHeight;
+    const modalContent = cameraPreviewFrame.closest('.camera-scan-modal-content');
 
-    let width = maxWidth;
-    let height = width / aspectRatio;
-    if (height > maxHeight) {
-        height = maxHeight;
-        width = height * aspectRatio;
+    const contentStyle = modalContent ? getComputedStyle(modalContent) : null;
+    const paddingLeft = parseFloat(contentStyle?.paddingLeft || '0') || 0;
+    const paddingRight = parseFloat(contentStyle?.paddingRight || '0') || 0;
+    const paddingTop = parseFloat(contentStyle?.paddingTop || '0') || 0;
+    const paddingBottom = parseFloat(contentStyle?.paddingBottom || '0') || 0;
+
+    // モーダル内でプレビュー以外の要素が占める高さを計測する。
+    // 閉じるボタンはabsolute配置なので通常フローの高さに含めない。
+    let reservedHeight = 0;
+    if (modalContent) {
+        for (const child of modalContent.children) {
+            if (child === cameraPreviewFrame || child === cameraScanModal?.querySelector('.modal-close-btn')) {
+                continue;
+            }
+
+            const style = getComputedStyle(child);
+            if (style.display === 'none' || style.position === 'absolute' || style.position === 'fixed') {
+                continue;
+            }
+
+            const rect = child.getBoundingClientRect();
+            reservedHeight += rect.height +
+                (parseFloat(style.marginTop) || 0) +
+                (parseFloat(style.marginBottom) || 0);
+        }
     }
 
-    const fittedWidth = Math.max(120, Math.floor(width));
-    const fittedHeight = Math.max(90, Math.floor(height));
+    const modalWidth = modalContent?.clientWidth
+        ? modalContent.clientWidth - paddingLeft - paddingRight
+        : viewportWidth * 0.94;
+
+    const maxWidth = Math.max(1, Math.min(
+        viewportWidth * 0.94,
+        modalWidth,
+        720
+    ));
+
+    const safeTop = parseFloat(getComputedStyle(cameraScanModal || document.body).paddingTop) || 0;
+    const safeBottom = parseFloat(getComputedStyle(cameraScanModal || document.body).paddingBottom) || 0;
+    const heightAvailableByLayout = viewportHeight -
+        safeTop - safeBottom -
+        paddingTop - paddingBottom -
+        reservedHeight - 24;
+
+    // 縦向き・横向きのどちらでも、UIを残したうえで使える高さを最大限確保する。
+    const maxHeight = Math.max(1, Math.min(
+        viewportHeight * (viewportHeight <= 600 ? 0.43 : 0.56),
+        heightAvailableByLayout,
+        560
+    ));
+
+    // 取得したカメラ映像の縦横比を維持し、元映像以上には拡大しない。
+    const scale = Math.min(
+        maxWidth / sourceWidth,
+        maxHeight / sourceHeight,
+        1
+    );
+
+    if (!Number.isFinite(scale) || scale <= 0) return;
+
+    const fittedWidth = Math.max(1, Math.floor(sourceWidth * scale));
+    const fittedHeight = Math.max(1, Math.floor(sourceHeight * scale));
+
     cameraPreviewFrame.style.width = `${fittedWidth}px`;
     cameraPreviewFrame.style.height = `${fittedHeight}px`;
-
-    // 読み取りガイドのサイズは decodeFromCamera() 側で、実際の映像領域と
-    // 解析ROIを同じ計算から設定する。ここでは別計算で上書きしない。
 }
 
 function openPackImportChoice() {
