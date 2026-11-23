@@ -16,8 +16,8 @@ const SETTINGS = {
     ec: 'H',
     modulePx: 4,
     extraMargin: 6,
-    // 生成動画の再生テンポとカメラ読み取りの両立を図る。
-    fps: 3,
+    // カメラ読み取りで複数フレームを取得できるよう、QRを1枚500ms表示する。
+    fps: 2,
     bitrateMbps: 4,
     reserve: 1,
     align16: true,
@@ -829,7 +829,7 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
 // -------------------------
 // Decode (Live Camera -> Worker jsQR)
 // -------------------------
-export async function decodeFromCamera(videoElement, onProgress, isStopped = () => false, guideElement = null) {
+export async function decodeFromCamera(videoElement, onProgress, isStopped = () => false) {
     const throwIfStopped = () => {
         if (isStopped()) {
             const error = new Error('ユーザーによってキャンセルされました。');
@@ -848,26 +848,20 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
     let workerUrl = null;
     let frameCanvas = null;
     let frameContext = null;
-    let scanLoopTimeoutId = null;
+    let frameCallbackId = null;
+    let animationFrameId = null;
     let cancelWatchId = null;
-    let workerReadyTimeoutId = null;
-    let workerResponseTimeoutId = null;
-    let resizeObserver = null;
-    let resizeHandler = null;
 
     try {
         if (typeof onProgress === 'function') onProgress(0, 'カメラを起動しています...');
-
         try {
-            const portraitDisplay = window.matchMedia?.('(orientation: portrait)').matches ??
-                window.innerHeight >= window.innerWidth;
             stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: {
                     facingMode: { ideal: 'environment' },
-                    width: { ideal: portraitDisplay ? 720 : 1280 },
-                    height: { ideal: portraitDisplay ? 1280 : 720 },
-                    frameRate: { ideal: 20, max: 30 }
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 15, max: 20 }
                 }
             });
         } catch (error) {
@@ -890,152 +884,36 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         videoElement.srcObject = stream;
         await videoElement.play();
 
-        // メタデータだけでなく、実際に描画可能なフレームが届くまで待つ。
-        const videoReadyDeadline = performance.now() + 12000;
-        while ((!videoElement.videoWidth || !videoElement.videoHeight || videoElement.readyState < 2) && !isStopped()) {
-            if (performance.now() > videoReadyDeadline) {
-                throw new Error('カメラ映像を取得できませんでした。カメラを再起動して、もう一度お試しください。');
-            }
-            await sleep(80);
-        }
+        // iOS Safari等で映像サイズが確定するまで待機する。
+        while ((!videoElement.videoWidth || !videoElement.videoHeight) && !isStopped()) await sleep(80);
         throwIfStopped();
 
+        const sourceWidth = videoElement.videoWidth;
+        const sourceHeight = videoElement.videoHeight;
+        const scale = Math.min(1, 1280 / Math.max(sourceWidth, sourceHeight));
+        const width = Math.max(1, Math.round(sourceWidth * scale));
+        const height = Math.max(1, Math.round(sourceHeight * scale));
         frameCanvas = document.createElement('canvas');
+        frameCanvas.width = width;
+        frameCanvas.height = height;
         frameContext = frameCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
         if (!frameContext) throw new Error('カメラ映像を解析するCanvasを初期化できません。');
 
-        // 解析範囲は画面上のガイド枠を実際のカメラ画像座標へ変換して求める。
-        // object-fit: contain による余白を除外し、枠の外側へ各辺3%だけ広げる。
-        // ガイドが取得できない場合は誤った中央切り抜きを避け、映像全体を解析する。
-        let scanRegion = null;
-        const updateScanRegion = () => {
-            const sourceWidth = videoElement.videoWidth;
-            const sourceHeight = videoElement.videoHeight;
-            const videoRect = videoElement.getBoundingClientRect();
-            if (!sourceWidth || !sourceHeight || videoRect.width <= 0 || videoRect.height <= 0) return;
-
-            const containScale = Math.min(
-                videoRect.width / sourceWidth,
-                videoRect.height / sourceHeight
-            );
-            if (!Number.isFinite(containScale) || containScale <= 0) return;
-
-            const contentWidth = sourceWidth * containScale;
-            const contentHeight = sourceHeight * containScale;
-            const contentLeft = videoRect.left + (videoRect.width - contentWidth) / 2;
-            const contentTop = videoRect.top + (videoRect.height - contentHeight) / 2;
-            const contentRight = contentLeft + contentWidth;
-            const contentBottom = contentTop + contentHeight;
-
-            let guideRect = null;
-            if (guideElement?.getBoundingClientRect) {
-                // レイアウト変化時もガイドを映像領域内に保つ。
-                // 横長カメラ映像を縦画面に表示した場合、横幅だけで決めると
-                // ガイドが映像の上下にはみ出すため、短辺も上限に含める。
-                const localWidth = videoElement.clientWidth || videoElement.offsetWidth || videoRect.width;
-                const localHeight = videoElement.clientHeight || videoElement.offsetHeight || videoRect.height;
-                const localContainScale = Math.min(localWidth / sourceWidth, localHeight / sourceHeight);
-                const localContentWidth = sourceWidth * localContainScale;
-                const localContentHeight = sourceHeight * localContainScale;
-                const guideSide = Math.max(1, Math.min(
-                    localContentWidth * 0.68,
-                    localContentHeight * 0.88,
-                    310
-                ));
-                if (Number.isFinite(guideSide) && guideSide > 1) {
-                    guideElement.style.width = `${guideSide}px`;
-                    guideElement.style.height = `${guideSide}px`;
-                }
-                guideRect = guideElement.getBoundingClientRect();
-            }
-
-            let sourceX = 0;
-            let sourceY = 0;
-            let scanRegionWidth = sourceWidth;
-            let scanRegionHeight = sourceHeight;
-
-            if (guideRect && guideRect.width > 0 && guideRect.height > 0) {
-                const marginX = guideRect.width * 0.03;
-                const marginY = guideRect.height * 0.03;
-                const left = Math.max(contentLeft, guideRect.left - marginX);
-                const top = Math.max(contentTop, guideRect.top - marginY);
-                const right = Math.min(contentRight, guideRect.right + marginX);
-                const bottom = Math.min(contentBottom, guideRect.bottom + marginY);
-
-                sourceX = Math.max(0, Math.floor((left - contentLeft) / containScale));
-                sourceY = Math.max(0, Math.floor((top - contentTop) / containScale));
-                const sourceRight = Math.min(sourceWidth, Math.ceil((right - contentLeft) / containScale));
-                const sourceBottom = Math.min(sourceHeight, Math.ceil((bottom - contentTop) / containScale));
-                scanRegionWidth = Math.max(1, sourceRight - sourceX);
-                scanRegionHeight = Math.max(1, sourceBottom - sourceY);
-            }
-
-            // Version 40の細いモジュールを潰さないよう、通常の端末解像度は縮小しない。
-            // 1600pxを超える場合だけ縮小し、元画像以上に拡大することもしない。
-            const maxScanDimension = 1600;
-            const scanScale = Math.min(1, maxScanDimension / Math.max(scanRegionWidth, scanRegionHeight));
-            const width = Math.max(1, Math.round(scanRegionWidth * scanScale));
-            const height = Math.max(1, Math.round(scanRegionHeight * scanScale));
-
-            const dimensionsChanged = frameCanvas.width !== width || frameCanvas.height !== height;
-            if (dimensionsChanged) {
-                frameCanvas.width = width;
-                frameCanvas.height = height;
-            }
-            scanRegion = {
-                sourceX,
-                sourceY,
-                sourceWidth: scanRegionWidth,
-                sourceHeight: scanRegionHeight,
-                videoWidth: sourceWidth,
-                videoHeight: sourceHeight,
-                width,
-                height
-            };
-        };
-
-        // モーダル表示・CSSレイアウトが反映されてから初回計測する。
-        await sleep(80);
-        updateScanRegion();
-        if (!scanRegion) throw new Error('カメラの表示領域を計算できません。画面を開き直してください。');
-
-        // 端末の回転・画面サイズ変更後も、ガイドとROIの位置を同期する。
-        resizeHandler = () => updateScanRegion();
-        window.addEventListener('resize', resizeHandler, { passive: true });
-        if (typeof ResizeObserver === 'function') {
-            resizeObserver = new ResizeObserver(() => updateScanRegion());
-            resizeObserver.observe(videoElement);
-            if (guideElement) resizeObserver.observe(guideElement);
-        }
-
-        // CDNからjsQRを読み込むWeb Worker。通常のQ-One QRは黒/白なので、
-        // 毎フレームdontInvertを使用し、反転画像の確認だけ低頻度で行う。
         const workerCode = `
-            try {
-                self.importScripts('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
-                if (typeof jsQR !== 'function') throw new Error('jsQRを初期化できません。');
-                self.postMessage({ type: 'ready' });
-            } catch (err) {
-                self.postMessage({ type: 'init-error', error: err && err.message ? err.message : String(err) });
-            }
-
+            self.importScripts('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
             self.onmessage = function(e) {
-                const message = e.data || {};
-                if (message.type !== 'scan') return;
-                const { id, data, width, height, fallbackInvert } = message;
+                const { id, data, width, height } = e.data;
                 try {
                     const pixels = data instanceof Uint8ClampedArray ? data : new Uint8ClampedArray(data);
-                    const code = jsQR(pixels, width, height, {
-                        inversionAttempts: fallbackInvert ? 'attemptBoth' : 'dontInvert'
-                    });
+                    const code = jsQR(pixels, width, height, { inversionAttempts: 'attemptBoth' });
                     if (code && code.binaryData && code.binaryData.length > 0) {
-                        const bin = new Uint8Array(code.binaryData);
-                        self.postMessage({ type: 'scan-result', id, qrFound: true, version: code.version, binaryData: bin }, [bin.buffer]);
+                        const bin = Uint8Array.from(code.binaryData);
+                        self.postMessage({ id, success: true, binaryData: bin }, [bin.buffer]);
                     } else {
-                        self.postMessage({ type: 'scan-result', id, qrFound: false });
+                        self.postMessage({ id, success: false });
                     }
                 } catch (err) {
-                    self.postMessage({ type: 'scan-result', id, error: err && err.message ? err.message : String(err) });
+                    self.postMessage({ id, success: false, error: err && err.message ? err.message : String(err) });
                 }
             };
         `;
@@ -1046,68 +924,33 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         const collector = createPacketCollector();
         let workerBusy = false;
         let settled = false;
-        let scanCount = 0;
-        let lastScanAt = -Infinity;
-        let lastStatusAt = 0;
+        let lastScanAt = 0;
         let requestId = 0;
-        let pendingRequestId = 0;
-        let isWorkerReady = false;
-        let readyResolve;
-        let readyReject;
         let resultPromiseResolve;
         let resultPromiseReject;
 
-        const workerReadyPromise = new Promise((resolve, reject) => {
-            readyResolve = resolve;
-            readyReject = reject;
-        });
         const resultPromise = new Promise((resolve, reject) => {
             resultPromiseResolve = resolve;
             resultPromiseReject = reject;
         });
 
-        const fail = (error) => {
+        const stopScanning = (error) => {
             if (settled) return;
             settled = true;
-            if (workerResponseTimeoutId !== null) clearTimeout(workerResponseTimeoutId);
-            resultPromiseReject(error);
+            if (error) resultPromiseReject(error);
         };
 
         worker.onmessage = async (event) => {
-            const data = event.data || {};
-            if (data.type === 'ready') {
-                isWorkerReady = true;
-                if (workerReadyTimeoutId !== null) clearTimeout(workerReadyTimeoutId);
-                readyResolve();
-                return;
-            }
-            if (data.type === 'init-error') {
-                const error = new Error(`QR解析ライブラリを読み込めませんでした: ${data.error || '不明なエラー'}`);
-                readyReject(error);
-                if (isWorkerReady) fail(error);
-                return;
-            }
-            if (data.type !== 'scan-result') return;
-            if (data.id !== pendingRequestId) return;
-
             workerBusy = false;
-            if (workerResponseTimeoutId !== null) {
-                clearTimeout(workerResponseTimeoutId);
-                workerResponseTimeoutId = null;
-            }
             if (settled || isStopped()) return;
-
-            if (data.error) {
-                console.warn('[Q-One:Camera] QR解析エラー:', data.error);
-            } else if (data.qrFound && data.binaryData) {
+            const data = event.data || {};
+            if (data.error) console.warn('[Q-One:Camera] QR解析エラー:', data.error);
+            if (data.success && data.binaryData) {
                 const result = collector.add(data.binaryData);
                 if (result.added && typeof onProgress === 'function') {
                     const ratio = result.total ? Math.min(0.9, result.received / result.total * 0.9) : 0;
                     onProgress(ratio, `QR読み取り中... ${result.received} / ${result.total}`);
-                } else if (!result.accepted && typeof onProgress === 'function') {
-                    onProgress(0, 'QRコードを検出しました。Q-Oneの転送データを確認しています...');
                 }
-
                 if (result.complete && !settled) {
                     settled = true;
                     try {
@@ -1119,113 +962,62 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                         resultPromiseReject(error);
                     }
                 }
-            } else if (data.qrFound && typeof onProgress === 'function') {
-                onProgress(0, 'QRコードを検出しました。読み取りを続けています...');
             }
         };
-
         worker.onerror = (event) => {
-            const error = new Error(`QR解析Workerでエラーが発生しました: ${event.message || '不明なエラー'}`);
-            if (isWorkerReady) fail(error);
-            else readyReject(error);
-        };
-        worker.onmessageerror = () => {
-            const error = new Error('QR解析Workerとのデータ通信に失敗しました。ページを再読み込みしてお試しください。');
-            if (isWorkerReady) fail(error);
-            else readyReject(error);
+            stopScanning(new Error(`QR解析Workerでエラーが発生しました: ${event.message || '不明なエラー'}`));
         };
 
-        workerReadyTimeoutId = setTimeout(() => {
-            readyReject(new Error('QR解析ライブラリの起動がタイムアウトしました。通信状態を確認して、もう一度お試しください。'));
-        }, 12000);
-
-        cancelWatchId = setInterval(() => {
-            if (isStopped()) {
-                const error = new Error('ユーザーによってキャンセルされました。');
-                error.name = 'AbortError';
-                if (isWorkerReady) fail(error);
-                else readyReject(error);
-            }
-        }, 120);
-
-        if (typeof onProgress === 'function') onProgress(0, 'QR解析を準備しています...');
-        await workerReadyPromise;
-        if (workerReadyTimeoutId !== null) {
-            clearTimeout(workerReadyTimeoutId);
-            workerReadyTimeoutId = null;
-        }
-        throwIfStopped();
-        if (typeof onProgress === 'function') onProgress(0, '画面内のQRコードを探しています...');
-
-        // 1フレームを処理している間は次を投入せず、完了次第できるだけ早く次を解析する。
-        // 70ms間隔を上限とし、Version 40の重いデコードでも処理待ちが積み上がらない。
         const scanFrame = () => {
             if (settled || isStopped()) return;
             const now = performance.now();
-            // videoWidth/Heightが切り替わる端末では、ResizeObserverを待たずにROIを再計算。
-            if (!scanRegion || scanRegion.videoWidth !== videoElement.videoWidth ||
-                scanRegion.videoHeight !== videoElement.videoHeight) {
-                updateScanRegion();
-            }
-            if (!workerBusy && scanRegion && videoElement.readyState >= 2 && now - lastScanAt >= 70) {
+            if (!workerBusy && videoElement.readyState >= 2 && now - lastScanAt >= 100) {
                 lastScanAt = now;
-                scanCount += 1;
                 try {
-                    frameContext.drawImage(
-                        videoElement,
-                        scanRegion.sourceX, scanRegion.sourceY,
-                        scanRegion.sourceWidth, scanRegion.sourceHeight,
-                        0, 0, scanRegion.width, scanRegion.height
-                    );
-                    const imageData = frameContext.getImageData(0, 0, scanRegion.width, scanRegion.height);
-                    const id = ++requestId;
-                    pendingRequestId = id;
+                    frameContext.drawImage(videoElement, 0, 0, width, height);
+                    const imageData = frameContext.getImageData(0, 0, width, height);
                     workerBusy = true;
-                    worker.postMessage({
-                        type: 'scan',
-                        id,
-                        data: imageData.data,
-                        width: scanRegion.width,
-                        height: scanRegion.height,
-                        // 通常の白地黒QRを高速優先で解析。約30回に1回だけ反転も確認する。
-                        fallbackInvert: scanCount % 30 === 0
-                    }, [imageData.data.buffer]);
-
-                    workerResponseTimeoutId = setTimeout(() => {
-                        if (workerBusy && pendingRequestId === id) {
-                            workerBusy = false;
-                            fail(new Error('QR解析が応答しません。カメラ映像を閉じて、もう一度読み取りを開始してください。'));
-                        }
-                    }, 12000);
+                    requestId += 1;
+                    worker.postMessage({ id: requestId, data: imageData.data, width, height }, [imageData.data.buffer]);
                 } catch (error) {
                     workerBusy = false;
                     console.warn('[Q-One:Camera] フレーム取得をスキップしました:', error);
                 }
             }
-
-            if (!settled && !isStopped() && typeof onProgress === 'function' &&
-                scanCount > 0 && now - lastStatusAt >= 1100) {
-                lastStatusAt = now;
-                const currentRatio = collector.total
-                    ? Math.min(0.9, collector.received / collector.total * 0.9)
-                    : 0;
-                const status = collector.total
-                    ? `QR読み取り中... ${collector.received} / ${collector.total}`
-                    : `QRコードを探しています...（解析 ${scanCount} 回）`;
-                onProgress(currentRatio, status);
-            }
-            if (!settled && !isStopped()) scanLoopTimeoutId = setTimeout(scanFrame, 20);
         };
 
-        scanLoopTimeoutId = setTimeout(scanFrame, 0);
+        const scheduleNextFrame = () => {
+            if (settled || isStopped()) return;
+            if (typeof videoElement.requestVideoFrameCallback === 'function') {
+                frameCallbackId = videoElement.requestVideoFrameCallback(() => {
+                    scanFrame();
+                    scheduleNextFrame();
+                });
+            } else {
+                animationFrameId = requestAnimationFrame(() => {
+                    scanFrame();
+                    scheduleNextFrame();
+                });
+            }
+        };
+
+        if (typeof onProgress === 'function') onProgress(0, '画面内のQRコードを探しています...');
+        scheduleNextFrame();
+        cancelWatchId = setInterval(() => {
+            if (isStopped()) {
+                const error = new Error('ユーザーによってキャンセルされました。');
+                error.name = 'AbortError';
+                stopScanning(error);
+            }
+        }, 120);
+
         return await resultPromise;
     } finally {
         if (cancelWatchId !== null) clearInterval(cancelWatchId);
-        if (scanLoopTimeoutId !== null) clearTimeout(scanLoopTimeoutId);
-        if (workerReadyTimeoutId !== null) clearTimeout(workerReadyTimeoutId);
-        if (workerResponseTimeoutId !== null) clearTimeout(workerResponseTimeoutId);
-        if (resizeObserver) resizeObserver.disconnect();
-        if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+        if (frameCallbackId !== null && typeof videoElement.cancelVideoFrameCallback === 'function') {
+            try { videoElement.cancelVideoFrameCallback(frameCallbackId); } catch (_) {}
+        }
+        if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
         if (worker) worker.terminate();
         if (workerUrl) URL.revokeObjectURL(workerUrl);
         if (stream) stream.getTracks().forEach(track => track.stop());
@@ -1235,3 +1027,4 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         }
     }
 }
+
