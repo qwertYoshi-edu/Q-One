@@ -190,22 +190,8 @@ function fitCameraPreview() {
     cameraPreviewFrame.style.width = `${fittedWidth}px`;
     cameraPreviewFrame.style.height = `${fittedHeight}px`;
 
-    // 正方形ガイドがプレビューの外へはみ出さないよう、幅と高さの
-    // 両方を基準にサイズを決める。解析側はこの実寸矩形を参照する。
-    if (cameraScanGuide) {
-        // CSSのobject-fit: containで実際に表示される映像領域を基準にする。
-        // frameの外寸ではなく、レターボックスを除いた映像そのものに枠を収める。
-        const videoRect = cameraScanVideo.getBoundingClientRect();
-        const scale = Math.min(
-            videoRect.width / sourceWidth,
-            videoRect.height / sourceHeight
-        );
-        const renderedWidth = sourceWidth * scale;
-        const renderedHeight = sourceHeight * scale;
-        const guideSize = Math.max(1, Math.floor(Math.min(renderedWidth * 0.68, renderedHeight * 0.78, 310)));
-        cameraScanGuide.style.width = `${guideSize}px`;
-        cameraScanGuide.style.height = `${guideSize}px`;
-    }
+    // 読み取りガイドのサイズは decodeFromCamera() 側で、実際の映像領域と
+    // 解析ROIを同じ計算から設定する。ここでは別計算で上書きしない。
 }
 
 function openPackImportChoice() {
