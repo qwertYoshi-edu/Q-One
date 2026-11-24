@@ -18,8 +18,11 @@ const packImportFileBtn = document.getElementById('pack-import-file-btn');
 const packImportCameraBtn = document.getElementById('pack-import-camera-btn');
 const cameraScanModal = document.getElementById('camera-scan-modal');
 const cameraScanVideo = document.getElementById('camera-scan-video');
+const cameraScanOverlay = document.getElementById('camera-scan-overlay');
 const cameraScanProgress = document.getElementById('camera-scan-progress');
 const cameraScanStatus = document.getElementById('camera-scan-status');
+const cameraPacketMap = document.getElementById('camera-packet-map');
+const cameraMissingSummary = document.getElementById('camera-missing-summary');
 const cameraScanCancelBtn = document.getElementById('camera-scan-cancel-btn');
 const cameraScanCloseBtn = document.getElementById('camera-scan-close-btn');
 const cameraPreviewFrame = document.getElementById('camera-preview-frame');
@@ -57,6 +60,11 @@ let currentTargetProblems = [];
 let currentModalMode = 'export'; // 'export' | 'import_txt' | 'save_my_pack'
 let pendingImportRawText = '';
 let isCameraScanCanceled = false;
+
+// カメラ読み取り視覚フィードバック用状態
+let renderedPacketTotal = 0;
+let hitHighlightTimerId = null;
+let overlayClearTimerId = null;
 
 // ============================================================================
 // プログレスUI制御
@@ -163,12 +171,11 @@ async function shareOrDownloadVideo(blob, filename) {
     return 'downloaded';
 }
 
+// ============================================================================
+// カメラプレビュー正方形レイアウト＆QR認識視覚フィードバック制御
+// ============================================================================
 function fitCameraPreview() {
-    if (!cameraScanVideo || !cameraPreviewFrame) return;
-
-    const sourceWidth = cameraScanVideo.videoWidth;
-    const sourceHeight = cameraScanVideo.videoHeight;
-    if (!sourceWidth || !sourceHeight) return;
+    if (!cameraPreviewFrame) return;
 
     const viewport = window.visualViewport;
     const viewportWidth = viewport?.width || document.documentElement.clientWidth || window.innerWidth;
@@ -204,12 +211,12 @@ function fitCameraPreview() {
 
     const modalWidth = modalContent?.clientWidth
         ? modalContent.clientWidth - paddingLeft - paddingRight
-        : viewportWidth * 0.94;
+        : viewportWidth * 0.92;
 
-    const maxWidth = Math.max(1, Math.min(
-        viewportWidth * 0.94,
+    const maxWidth = Math.max(88, Math.min(
+        viewportWidth * 0.88,
         modalWidth,
-        720
+        420
     ));
 
     const safeTop = parseFloat(getComputedStyle(cameraScanModal || document.body).paddingTop) || 0;
@@ -217,29 +224,237 @@ function fitCameraPreview() {
     const heightAvailableByLayout = viewportHeight -
         safeTop - safeBottom -
         paddingTop - paddingBottom -
-        reservedHeight - 24;
+        reservedHeight - 16;
 
-    // 縦向き・横向きのどちらでも、UIを残したうえで使える高さを最大限確保する。
-    const maxHeight = Math.max(1, Math.min(
-        viewportHeight * (viewportHeight <= 600 ? 0.43 : 0.56),
+    const maxHeight = Math.max(88, Math.min(
+        viewportHeight * (viewportHeight <= 600 ? 0.40 : 0.50),
         heightAvailableByLayout,
-        560
+        420
     ));
 
-    // 取得したカメラ映像の縦横比を維持し、元映像以上には拡大しない。
-    const scale = Math.min(
-        maxWidth / sourceWidth,
-        maxHeight / sourceHeight,
-        1
-    );
+    // 短辺基準の解析領域に合わせ、プレビュー枠も常に1:1の正方形に統一する。
+    const side = Math.max(88, Math.floor(Math.min(maxWidth, maxHeight)));
+    if (!Number.isFinite(side) || side <= 0) return;
 
-    if (!Number.isFinite(scale) || scale <= 0) return;
+    cameraPreviewFrame.style.width = `${side}px`;
+    cameraPreviewFrame.style.height = `${side}px`;
 
-    const fittedWidth = Math.max(1, Math.floor(sourceWidth * scale));
-    const fittedHeight = Math.max(1, Math.floor(sourceHeight * scale));
+    if (cameraScanOverlay) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const targetW = Math.round(side * dpr);
+        const targetH = Math.round(side * dpr);
+        if (cameraScanOverlay.width !== targetW || cameraScanOverlay.height !== targetH) {
+            cameraScanOverlay.width = targetW;
+            cameraScanOverlay.height = targetH;
+        }
+    }
+}
 
-    cameraPreviewFrame.style.width = `${fittedWidth}px`;
-    cameraPreviewFrame.style.height = `${fittedHeight}px`;
+function clearScanOverlay() {
+    if (overlayClearTimerId !== null) {
+        clearTimeout(overlayClearTimerId);
+        overlayClearTimerId = null;
+    }
+    cameraPreviewFrame?.classList.remove('is-detecting');
+    if (!cameraScanOverlay) return;
+    const ctx = cameraScanOverlay.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, cameraScanOverlay.width, cameraScanOverlay.height);
+}
+
+function drawScanOverlay(location, isNew = false, seqLabel = null) {
+    if (!cameraScanOverlay || !location) {
+        clearScanOverlay();
+        return;
+    }
+
+    const width = cameraScanOverlay.width;
+    const height = cameraScanOverlay.height;
+    if (!width || !height) return;
+
+    const ctx = cameraScanOverlay.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, width, height);
+
+    const pts = [
+        location.topLeftCorner,
+        location.topRightCorner,
+        location.bottomRightCorner,
+        location.bottomLeftCorner
+    ].map(p => ({ x: p.x * width, y: p.y * height }));
+
+    const strokeColor = isNew ? '#34D399' : '#38BDF8';
+    const fillColor = isNew ? 'rgba(52, 211, 153, 0.22)' : 'rgba(56, 189, 248, 0.14)';
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.lineTo(pts[2].x, pts[2].y);
+    ctx.lineTo(pts[3].x, pts[3].y);
+    ctx.closePath();
+
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+
+    ctx.lineWidth = Math.max(3, Math.round(width * 0.01));
+    ctx.strokeStyle = strokeColor;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // 4隅のドットマーカー描画
+    const dotRadius = Math.max(4, Math.round(width * 0.013));
+    ctx.fillStyle = strokeColor;
+    for (const pt of pts) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 認識中のフレーム番号バッジをQR中央に表示
+    if (seqLabel) {
+        const centerX = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4;
+        const centerY = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4;
+        const fontSize = Math.max(13, Math.round(width * 0.045));
+        ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        const textWidth = ctx.measureText(seqLabel).width;
+        const padX = fontSize * 0.65;
+        const boxW = textWidth + padX * 2;
+        const boxH = fontSize * 1.65;
+        const boxX = centerX - boxW / 2;
+        const boxY = centerY - boxH / 2;
+        const radius = boxH / 2;
+
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxW, boxH, radius);
+        ctx.fillStyle = 'rgba(17, 24, 39, 0.82)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = strokeColor;
+        ctx.stroke();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(seqLabel, centerX, centerY);
+    }
+
+    ctx.restore();
+
+    cameraPreviewFrame?.classList.add('is-detecting');
+
+    if (overlayClearTimerId !== null) clearTimeout(overlayClearTimerId);
+    overlayClearTimerId = setTimeout(() => {
+        clearScanOverlay();
+    }, 550);
+}
+
+function triggerScanHitEffect() {
+    if (!cameraPreviewFrame) return;
+    cameraPreviewFrame.classList.remove('is-hit');
+    // リフローを強制して連続ヒット時もアニメーションを再発火させる
+    void cameraPreviewFrame.offsetWidth;
+    cameraPreviewFrame.classList.add('is-hit');
+
+    if (typeof navigator.vibrate === 'function') {
+        try { navigator.vibrate(28); } catch (_) { /* ignore */ }
+    }
+
+    if (hitHighlightTimerId !== null) clearTimeout(hitHighlightTimerId);
+    hitHighlightTimerId = setTimeout(() => {
+        cameraPreviewFrame?.classList.remove('is-hit');
+    }, 360);
+}
+
+function resetPacketMapUI() {
+    renderedPacketTotal = 0;
+    if (hitHighlightTimerId !== null) {
+        clearTimeout(hitHighlightTimerId);
+        hitHighlightTimerId = null;
+    }
+    clearScanOverlay();
+    cameraPreviewFrame?.classList.remove('is-hit', 'is-detecting');
+
+    if (cameraPacketMap) {
+        cameraPacketMap.innerHTML = '';
+        cameraPacketMap.hidden = true;
+    }
+    if (cameraMissingSummary) {
+        cameraMissingSummary.textContent = '';
+        cameraMissingSummary.hidden = true;
+    }
+}
+
+function updatePacketMapUI(details) {
+    if (!details || !cameraPacketMap) return;
+    const total = Number.isInteger(details.total) && details.total > 0 ? details.total : 0;
+    if (total === 0) return;
+
+    const wasHidden = cameraPacketMap.hidden;
+    let layoutChanged = false;
+
+    if (renderedPacketTotal !== total) {
+        renderedPacketTotal = total;
+        cameraPacketMap.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        for (let i = 0; i < total; i++) {
+            const tile = document.createElement('div');
+            tile.className = 'packet-tile';
+            tile.dataset.seq = String(i);
+            tile.textContent = String(i + 1);
+            tile.setAttribute('aria-label', `フレーム ${i + 1}: 未受信`);
+            fragment.appendChild(tile);
+        }
+        cameraPacketMap.appendChild(fragment);
+        cameraPacketMap.hidden = false;
+        layoutChanged = true;
+    } else if (wasHidden) {
+        cameraPacketMap.hidden = false;
+        layoutChanged = true;
+    }
+
+    const receivedSet = new Set(Array.isArray(details.receivedIndices) ? details.receivedIndices : []);
+    const tiles = cameraPacketMap.querySelectorAll('.packet-tile');
+    const missingNumbers = [];
+
+    tiles.forEach((tile, index) => {
+        const isReceived = receivedSet.has(index);
+        if (isReceived) {
+            if (!tile.classList.contains('is-received')) {
+                tile.classList.add('is-received');
+                tile.setAttribute('aria-label', `フレーム ${index + 1}: 受信済み`);
+            }
+        } else {
+            missingNumbers.push(index + 1);
+        }
+
+        if (details.addedSeq === index) {
+            tile.classList.remove('is-just-received');
+            void tile.offsetWidth;
+            tile.classList.add('is-just-received');
+        }
+    });
+
+    if (cameraMissingSummary) {
+        const wasSummaryHidden = cameraMissingSummary.hidden;
+        if (missingNumbers.length === 0) {
+            cameraMissingSummary.textContent = 'すべての番号を受信しました！';
+            cameraMissingSummary.hidden = false;
+        } else {
+            const maxVisible = 12;
+            const listed = missingNumbers.slice(0, maxVisible).map(n => `#${n}`).join(', ');
+            const suffix = missingNumbers.length > maxVisible ? ` ほか${missingNumbers.length - maxVisible}枚` : '';
+            cameraMissingSummary.textContent = `未受信（残り${missingNumbers.length}枚）: ${listed}${suffix}`;
+            cameraMissingSummary.hidden = false;
+        }
+        if (wasSummaryHidden !== cameraMissingSummary.hidden) {
+            layoutChanged = true;
+        }
+    }
+
+    if (layoutChanged) {
+        requestAnimationFrame(fitCameraPreview);
+    }
 }
 
 function openPackImportChoice() {
@@ -543,6 +758,7 @@ async function registerPackFromRestoredText(rawRestoredText, fallbackTitle = '�
 
 function closeCameraScanModal() {
     isCameraScanCanceled = true;
+    resetPacketMapUI();
     cameraScanModal?.classList.remove('active');
 }
 
@@ -552,6 +768,7 @@ async function startCameraImport() {
         return;
     }
     isCameraScanCanceled = false;
+    resetPacketMapUI();
     if (cameraScanProgress) cameraScanProgress.style.width = '0%';
     if (cameraScanStatus) cameraScanStatus.textContent = 'カメラを起動しています...';
     if (cameraPreviewFrame) {
@@ -559,18 +776,39 @@ async function startCameraImport() {
         cameraPreviewFrame.style.height = '';
     }
     cameraScanModal?.classList.add('active');
+    requestAnimationFrame(fitCameraPreview);
 
     try {
         const rawRestoredText = await decodeFromCamera(
             cameraScanVideo,
-            (ratio, message) => {
+            (ratio, message, details) => {
                 if (cameraScanProgress) cameraScanProgress.style.width = `${Math.min(100, Math.max(0, ratio * 100))}%`;
                 if (message && cameraScanStatus) cameraScanStatus.textContent = message;
+
+                if (details) {
+                    if (details.qrDetected && details.location) {
+                        const seqLabel = Number.isInteger(details.currentSeq)
+                            ? `#${details.currentSeq + 1}${details.isNew ? ' NEW' : ' OK'}`
+                            : 'QR検出';
+                        drawScanOverlay(details.location, Boolean(details.isNew), seqLabel);
+                    } else if (details.qrDetected === false) {
+                        clearScanOverlay();
+                    }
+
+                    if (details.isNew) {
+                        triggerScanHitEffect();
+                    }
+
+                    if (Number.isInteger(details.total) && details.total > 0) {
+                        updatePacketMapUI(details);
+                    }
+                }
             },
             () => isCameraScanCanceled,
             cameraScanGuide
         );
         if (isCameraScanCanceled) throw Object.assign(new Error('ユーザーによってキャンセルされました。'), { name: 'AbortError' });
+        resetPacketMapUI();
         cameraScanModal?.classList.remove('active');
 
         showProgressModal('問題パックを保存中...');
@@ -586,6 +824,7 @@ async function startCameraImport() {
             alert(`「${packRecord.title}」(${packRecord.count}問) を読み込みました！`);
         }, 300);
     } catch (error) {
+        resetPacketMapUI();
         cameraScanModal?.classList.remove('active');
         hideProgressModal();
         if (error?.name === 'AbortError' || isCameraScanCanceled) {
