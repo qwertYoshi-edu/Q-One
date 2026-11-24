@@ -1535,14 +1535,25 @@
             position: relative;
             display: block;
             flex: 0 0 auto;
-            width: 100%;
+            width: min(72vw, 340px);
+            height: min(72vw, 340px);
+            aspect-ratio: 1 / 1;
             max-width: 100%;
             margin: 0 auto;
             min-width: 0;
             min-height: 0;
             overflow: hidden;
             border-radius: var(--radius-md);
+            border: 2px solid rgba(255, 255, 255, 0.18);
             background: #111827;
+            transition: border-color .2s ease, box-shadow .22s ease;
+        }
+        .camera-preview-frame.is-detecting {
+            border-color: rgba(52, 211, 153, 0.75);
+        }
+        .camera-preview-frame.is-hit {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.36), 0 0 22px rgba(52, 211, 153, 0.34);
         }
         
         #camera-scan-video {
@@ -1551,17 +1562,109 @@
             display: block;
             width: 100%;
             height: 100%;
-            object-fit: fill;
+            object-fit: cover;
+        }
+        #camera-scan-overlay {
+            position: absolute;
+            inset: 0;
+            display: block;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
         }
         .camera-scan-guide {
-            position: absolute; left: 50%; top: 50%; width: min(68%, 310px); aspect-ratio: 1 / 1;
-            border: 2px solid rgba(255,255,255,.9); border-radius: 12px; transform: translate(-50%, -50%);
-            box-shadow: 0 0 0 999px rgba(0,0,0,.12); pointer-events: none;
+            position: absolute;
+            inset: 4%;
+            border-radius: 10px;
+            pointer-events: none;
+            z-index: 3;
+            overflow: hidden;
+        }
+        .camera-scan-guide .guide-corner {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-color: rgba(255, 255, 255, 0.92);
+            border-style: solid;
+            transition: border-color .2s ease, transform .2s ease;
+        }
+        .camera-preview-frame.is-detecting .camera-scan-guide .guide-corner,
+        .camera-preview-frame.is-hit .camera-scan-guide .guide-corner {
+            border-color: var(--primary-color);
+        }
+        .camera-scan-guide .guide-corner.tl { top: 0; left: 0; border-width: 3px 0 0 3px; border-top-left-radius: 8px; }
+        .camera-scan-guide .guide-corner.tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-top-right-radius: 8px; }
+        .camera-scan-guide .guide-corner.bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-bottom-left-radius: 8px; }
+        .camera-scan-guide .guide-corner.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-bottom-right-radius: 8px; }
+        .camera-scan-line {
+            position: absolute;
+            left: 4%;
+            right: 4%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.9), transparent);
+            box-shadow: 0 0 8px rgba(52, 211, 153, 0.65);
+            animation: camera-scan-sweep 2.4s ease-in-out infinite;
+            opacity: 0.78;
+        }
+        @keyframes camera-scan-sweep {
+            0%, 100% { top: 6%; }
+            50% { top: 94%; }
         }
         .camera-scan-info { width: 100%; flex: 0 0 auto; margin-top: .65rem; }
         .camera-scan-progress-bg { width: 100%; height: 9px; overflow: hidden; border-radius: 99px; background: var(--light-bg); border: 1px solid var(--border-color); }
         .camera-scan-progress-fill { width: 0%; height: 100%; background: var(--primary-color); transition: width .18s ease; }
         .camera-scan-status { min-height: 1.35em; margin: .45rem 0 0; color: var(--secondary-color); font-size: .84rem; text-align: center; }
+        .camera-packet-map {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
+            gap: 4px;
+            width: 100%;
+            max-height: 76px;
+            overflow-y: auto;
+            margin-top: .5rem;
+            padding: 2px;
+        }
+        .camera-packet-map[hidden] { display: none; }
+        .packet-tile {
+            aspect-ratio: 1 / 1;
+            min-height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px;
+            font-size: .7rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            border: 1.5px solid var(--border-color);
+            background: var(--light-bg);
+            color: var(--secondary-color);
+            user-select: none;
+            transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+        }
+        .packet-tile.is-received {
+            background: var(--primary-color);
+            border-color: var(--primary-hover);
+            color: #ffffff;
+        }
+        .packet-tile.is-just-received {
+            animation: packet-tile-pop .42s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+        }
+        @keyframes packet-tile-pop {
+            0% { transform: scale(1); }
+            45% { transform: scale(1.22); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.4); }
+            100% { transform: scale(1); }
+        }
+        .camera-missing-summary {
+            margin: .35rem 0 0;
+            min-height: 1.2em;
+            font-size: .78rem;
+            font-weight: 600;
+            color: var(--secondary-color);
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
+        .camera-missing-summary[hidden] { display: none; }
         .camera-scan-actions { display: flex; flex: 0 0 auto; gap: .65rem; justify-content: center; margin-top: .65rem; }
         .camera-scan-actions button { min-width: 112px; }
 
@@ -1688,8 +1791,9 @@
         .camera-scan-modal .camera-scan-actions button { min-height: 42px; }
         @media (max-height: 600px) {
             .camera-scan-modal .camera-scan-description { -webkit-line-clamp: 1; margin-bottom: .3rem; }
-            .camera-scan-modal .camera-preview-frame { max-height: 43dvh; min-height: 88px; }
+            .camera-scan-modal .camera-preview-frame { max-width: 40dvh; max-height: 40dvh; min-width: 88px; min-height: 88px; }
             .camera-scan-modal .camera-scan-info { margin-top: .35rem; }
+            .camera-scan-modal .camera-packet-map { max-height: 54px; margin-top: .3rem; }
             .camera-scan-modal .camera-scan-actions { margin-top: .35rem; }
         }
         @media (max-width: 520px) {
@@ -1731,7 +1835,7 @@
                 <header class="app-header">
                     <div class="app-brand">
                         <img src="./assets/logo-full.svg" alt="Q-One" class="app-logo">
-                        <span class="app-version">v26.nv23.2</span>
+                        <span class="app-version">v26.nv24.1</span>
                     </div>
 <div class="app-actions">
     <!-- プロフィールボタン -->
@@ -2333,14 +2437,23 @@
         <div class="modal-content camera-scan-modal-content">
             <button id="camera-scan-close-btn" class="modal-close-btn" type="button" aria-label="読み取りを停止">×</button>
             <h3 id="camera-scan-title">カメラで読み取り</h3>
-            <p class="camera-scan-description">送信側でQR動画をループ再生し、ガイド内にQRコード全体が入るように映してください。多少傾いていても読み取れます。すべてのQRを受信するまで自動で読み取りを続けます。</p>
+            <p class="camera-scan-description">送信側でQR動画をループ再生し、正方形のプレビュー枠内にQRコード全体が入るように映してください。すべての番号が緑色になるまで自動で読み取りを続けます。</p>
             <div id="camera-preview-frame" class="camera-preview-frame">
                 <video id="camera-scan-video" autoplay muted playsinline></video>
-                <div class="camera-scan-guide" aria-hidden="true"></div>
+                <canvas id="camera-scan-overlay" aria-hidden="true"></canvas>
+                <div class="camera-scan-guide" aria-hidden="true">
+                    <span class="guide-corner tl"></span>
+                    <span class="guide-corner tr"></span>
+                    <span class="guide-corner bl"></span>
+                    <span class="guide-corner br"></span>
+                    <span class="camera-scan-line"></span>
+                </div>
             </div>
             <div class="camera-scan-info">
                 <div class="camera-scan-progress-bg"><div id="camera-scan-progress" class="camera-scan-progress-fill"></div></div>
                 <p id="camera-scan-status" class="camera-scan-status" aria-live="polite">カメラを起動しています...</p>
+                <div id="camera-packet-map" class="camera-packet-map" aria-label="QRフレーム受信状況" hidden></div>
+                <p id="camera-missing-summary" class="camera-missing-summary" aria-live="polite" hidden></p>
             </div>
             <div class="camera-scan-actions">
                 <button id="camera-scan-cancel-btn" class="cancel-btn" type="button">読み取りを停止</button>
