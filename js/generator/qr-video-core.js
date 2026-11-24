@@ -16,8 +16,8 @@ const SETTINGS = {
     ec: 'H',
     modulePx: 4,
     extraMargin: 6,
-    // 生成動画の再生テンポとカメラ読み取りの両立を図る。
-    fps: 3,
+    // 生成動画の再生テンポとカメラ読み取りの安定性の両立を図る。
+    fps: 2,
     bitrateMbps: 4,
     reserve: 1,
     align16: true,
@@ -185,9 +185,22 @@ export function createPacketCollector() {
     let flags = null;
     let expectedHash = null;
 
+    const getReceivedIndices = () => Array.from(chunks.keys()).sort((a, b) => a - b);
+
     function add(binaryData) {
         const packet = parsePacket(binaryData instanceof Uint8Array ? binaryData : Uint8Array.from(binaryData || []));
-        if (!packet) return { accepted: false, added: false, received: chunks.size, total, complete: false };
+        if (!packet) {
+            return {
+                accepted: false,
+                added: false,
+                seq: null,
+                addedSeq: null,
+                received: chunks.size,
+                total,
+                receivedIndices: getReceivedIndices(),
+                complete: false
+            };
+        }
 
         if (!transferId) {
             transferId = packet.transferId.slice();
@@ -204,11 +217,31 @@ export function createPacketCollector() {
             packet.encodedSize === encodedSize &&
             packet.flags === flags &&
             equalBytes(packet.hash, expectedHash);
-        if (!sameTransfer) return { accepted: false, added: false, received: chunks.size, total, complete: false };
+        if (!sameTransfer) {
+            return {
+                accepted: false,
+                added: false,
+                seq: null,
+                addedSeq: null,
+                received: chunks.size,
+                total,
+                receivedIndices: getReceivedIndices(),
+                complete: false
+            };
+        }
 
         const added = !chunks.has(packet.seq);
         if (added) chunks.set(packet.seq, packet.payload.slice());
-        return { accepted: true, added, received: chunks.size, total, complete: chunks.size === total };
+        return {
+            accepted: true,
+            added,
+            seq: packet.seq,
+            addedSeq: added ? packet.seq : null,
+            received: chunks.size,
+            total,
+            receivedIndices: getReceivedIndices(),
+            complete: chunks.size === total
+        };
     }
 
     async function restore() {
@@ -238,6 +271,7 @@ export function createPacketCollector() {
         restore,
         get received() { return chunks.size; },
         get total() { return total; },
+        get receivedIndices() { return getReceivedIndices(); },
         get complete() { return total !== null && chunks.size === total; }
     };
 }
@@ -829,6 +863,20 @@ export async function decodeFromVideo(file, onProgress, isStopped = () => false)
 // -------------------------
 // Decode (Live Camera -> Worker jsQR)
 // -------------------------
+function normalizeQrLocation(rawLocation, width, height) {
+    if (!rawLocation || !width || !height) return null;
+    const normalizePoint = (pt) => {
+        if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return null;
+        return { x: pt.x / width, y: pt.y / height };
+    };
+    const topLeftCorner = normalizePoint(rawLocation.topLeftCorner);
+    const topRightCorner = normalizePoint(rawLocation.topRightCorner);
+    const bottomRightCorner = normalizePoint(rawLocation.bottomRightCorner);
+    const bottomLeftCorner = normalizePoint(rawLocation.bottomLeftCorner);
+    if (!topLeftCorner || !topRightCorner || !bottomRightCorner || !bottomLeftCorner) return null;
+    return { topLeftCorner, topRightCorner, bottomRightCorner, bottomLeftCorner };
+}
+
 export async function decodeFromCamera(videoElement, onProgress, isStopped = () => false, guideElement = null) {
     const throwIfStopped = () => {
         if (isStopped()) {
@@ -855,8 +903,14 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
     let resizeObserver = null;
     let resizeHandler = null;
 
+    const emitProgress = (ratio, message, details = null) => {
+        if (typeof onProgress === 'function') {
+            onProgress(ratio, message, details);
+        }
+    };
+
     try {
-        if (typeof onProgress === 'function') onProgress(0, 'カメラを起動しています...');
+        emitProgress(0, 'カメラを起動しています...', { qrDetected: false, location: null });
 
         try {
             const portraitDisplay = window.matchMedia?.('(orientation: portrait)').matches ??
@@ -906,109 +960,44 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         frameContext = frameCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
         if (!frameContext) throw new Error('カメラ映像を解析するCanvasを初期化できません。');
 
-        // ガイド枠と解析ROIを、実際に表示されているvideo要素の矩形から同じ座標系で計算する。
-        // CSS側でvideoをpreview-frame全面に表示し、fitCameraPreview()が元映像と同じ縦横比に
-        // preview-frameを設定するため、object-fit:containの余白推定は不要。
-        // ガイド枠の外側へ各辺5%を加え、QRのquiet zoneや位置合わせの誤差も含める。
+        // カメラ元映像の短辺を基準に、中央の正方形領域（1:1）すべてを解析ROIとして切り出す。
+        // プレビュー側の正方形枠（object-fit: cover）と1:1で完全に一致する。
         const previewElement = guideElement?.parentElement || videoElement.parentElement;
         let scanRegion = null;
 
         const updateScanRegion = () => {
             const sourceWidth = videoElement.videoWidth;
             const sourceHeight = videoElement.videoHeight;
-            const videoRect = videoElement.getBoundingClientRect();
 
-            if (
-                !sourceWidth || !sourceHeight ||
-                videoRect.width <= 0 || videoRect.height <= 0
-            ) {
+            if (!sourceWidth || !sourceHeight) {
                 scanRegion = null;
                 return;
             }
 
-            let sourceX = 0;
-            let sourceY = 0;
-            let scanRegionWidth = sourceWidth;
-            let scanRegionHeight = sourceHeight;
-
-            if (guideElement?.getBoundingClientRect) {
-                // guideはpreview-frameの子要素。枠サイズも同じ親要素の実測値から設定する。
-                const frameRect = previewElement?.getBoundingClientRect?.() || videoRect;
-                const guideSide = Math.max(1, Math.min(
-                    frameRect.width * 0.68,
-                    frameRect.height * 0.88,
-                    310
-                ));
-
-                if (Number.isFinite(guideSide) && guideSide > 1) {
-                    const nextWidth = `${guideSide}px`;
-                    const nextHeight = `${guideSide}px`;
-                    if (guideElement.style.width !== nextWidth) guideElement.style.width = nextWidth;
-                    if (guideElement.style.height !== nextHeight) guideElement.style.height = nextHeight;
-                }
-
-                const guideRect = guideElement.getBoundingClientRect();
-                if (guideRect.width > 0 && guideRect.height > 0) {
-                    // HTML上の枠を5%ずつ拡張。はみ出した部分は映像端でクリップする。
-                    const marginX = guideRect.width * 0.05;
-                    const marginY = guideRect.height * 0.05;
-                    const left = Math.max(videoRect.left, guideRect.left - marginX);
-                    const top = Math.max(videoRect.top, guideRect.top - marginY);
-                    const right = Math.min(videoRect.right, guideRect.right + marginX);
-                    const bottom = Math.min(videoRect.bottom, guideRect.bottom + marginY);
-
-                    // CSSピクセルからカメラの元画像ピクセルへ直接変換する。
-                    // video要素はpreview-frameと同寸で、映像を全面表示するCSSを前提とする。
-                    const scaleX = sourceWidth / videoRect.width;
-                    const scaleY = sourceHeight / videoRect.height;
-
-                    sourceX = Math.max(0, Math.min(
-                        sourceWidth - 1,
-                        Math.floor((left - videoRect.left) * scaleX)
-                    ));
-                    sourceY = Math.max(0, Math.min(
-                        sourceHeight - 1,
-                        Math.floor((top - videoRect.top) * scaleY)
-                    ));
-
-                    const sourceRight = Math.max(sourceX + 1, Math.min(
-                        sourceWidth,
-                        Math.ceil((right - videoRect.left) * scaleX)
-                    ));
-                    const sourceBottom = Math.max(sourceY + 1, Math.min(
-                        sourceHeight,
-                        Math.ceil((bottom - videoRect.top) * scaleY)
-                    ));
-
-                    scanRegionWidth = sourceRight - sourceX;
-                    scanRegionHeight = sourceBottom - sourceY;
-                }
-            }
+            const cropSide = Math.min(sourceWidth, sourceHeight);
+            const sourceX = Math.floor((sourceWidth - cropSide) / 2);
+            const sourceY = Math.floor((sourceHeight - cropSide) / 2);
 
             // Version 40の小さなモジュールを維持するため、通常は縮小しない。
             // 1600pxを超える場合のみ縮小し、元画像の画素数以上には拡大しない。
             const maxScanDimension = 1600;
-            const scanScale = Math.min(
-                1,
-                maxScanDimension / Math.max(scanRegionWidth, scanRegionHeight)
-            );
-            const width = Math.max(1, Math.round(scanRegionWidth * scanScale));
-            const height = Math.max(1, Math.round(scanRegionHeight * scanScale));
+            const scanScale = Math.min(1, maxScanDimension / cropSide);
+            const side = Math.max(1, Math.round(cropSide * scanScale));
 
-            if (frameCanvas.width !== width || frameCanvas.height !== height) {
-                frameCanvas.width = width;
-                frameCanvas.height = height;
+            if (frameCanvas.width !== side || frameCanvas.height !== side) {
+                frameCanvas.width = side;
+                frameCanvas.height = side;
             }
 
             scanRegion = {
                 sourceX,
                 sourceY,
-                sourceWidth: scanRegionWidth,
-                sourceHeight: scanRegionHeight,
+                sourceWidth: cropSide,
+                sourceHeight: cropSide,
                 videoWidth: sourceWidth,
                 videoHeight: sourceHeight,
-                width,
-                height
+                width: side,
+                height: side
             };
         };
 
@@ -1017,7 +1006,7 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         updateScanRegion();
         if (!scanRegion) throw new Error('カメラの表示領域を計算できません。画面を開き直してください。');
 
-        // 端末回転・プレビュー寸法変更・表示枠変更時にROIを再計算する。
+        // 端末回転・プレビュー寸法変更時にROIを再計算する。
         resizeHandler = () => updateScanRegion();
         window.addEventListener('resize', resizeHandler, { passive: true });
         window.addEventListener('orientationchange', resizeHandler, { passive: true });
@@ -1027,11 +1016,11 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
             resizeObserver = new ResizeObserver(() => updateScanRegion());
             if (previewElement) resizeObserver.observe(previewElement);
             resizeObserver.observe(videoElement);
-            if (guideElement) resizeObserver.observe(guideElement);
         }
 
         // CDNからjsQRを読み込むWeb Worker。通常のQ-One QRは黒/白なので、
         // 毎フレームdontInvertを使用し、反転画像の確認だけ低頻度で行う。
+        // 検出時は4隅座標（location）も返却してリアルタイム枠描画に利用する。
         const workerCode = `
             try {
                 self.importScripts('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
@@ -1050,11 +1039,28 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                     const code = jsQR(pixels, width, height, {
                         inversionAttempts: fallbackInvert ? 'attemptBoth' : 'dontInvert'
                     });
-                    if (code && code.binaryData && code.binaryData.length > 0) {
-                        const bin = new Uint8Array(code.binaryData);
-                        self.postMessage({ type: 'scan-result', id, qrFound: true, version: code.version, binaryData: bin }, [bin.buffer]);
+                    if (code) {
+                        const loc = code.location ? {
+                            topLeftCorner: { x: code.location.topLeftCorner.x, y: code.location.topLeftCorner.y },
+                            topRightCorner: { x: code.location.topRightCorner.x, y: code.location.topRightCorner.y },
+                            bottomRightCorner: { x: code.location.bottomRightCorner.x, y: code.location.bottomRightCorner.y },
+                            bottomLeftCorner: { x: code.location.bottomLeftCorner.x, y: code.location.bottomLeftCorner.y }
+                        } : null;
+                        if (code.binaryData && code.binaryData.length > 0) {
+                            const bin = new Uint8Array(code.binaryData);
+                            self.postMessage({
+                                type: 'scan-result',
+                                id,
+                                qrFound: true,
+                                version: code.version,
+                                location: loc,
+                                binaryData: bin
+                            }, [bin.buffer]);
+                        } else {
+                            self.postMessage({ type: 'scan-result', id, qrFound: true, location: loc });
+                        }
                     } else {
-                        self.postMessage({ type: 'scan-result', id, qrFound: false });
+                        self.postMessage({ type: 'scan-result', id, qrFound: false, location: null });
                     }
                 } catch (err) {
                     self.postMessage({ type: 'scan-result', id, error: err && err.message ? err.message : String(err) });
@@ -1073,6 +1079,8 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
         let lastStatusAt = 0;
         let requestId = 0;
         let pendingRequestId = 0;
+        let pendingFrameWidth = 0;
+        let pendingFrameHeight = 0;
         let isWorkerReady = false;
         let readyResolve;
         let readyReject;
@@ -1119,30 +1127,101 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
             }
             if (settled || isStopped()) return;
 
+            const normalizedLocation = normalizeQrLocation(data.location, pendingFrameWidth, pendingFrameHeight);
+
             if (data.error) {
                 console.warn('[Q-One:Camera] QR解析エラー:', data.error);
             } else if (data.qrFound && data.binaryData) {
                 const result = collector.add(data.binaryData);
-                if (result.added && typeof onProgress === 'function') {
-                    const ratio = result.total ? Math.min(0.9, result.received / result.total * 0.9) : 0;
-                    onProgress(ratio, `QR読み取り中... ${result.received} / ${result.total}`);
-                } else if (!result.accepted && typeof onProgress === 'function') {
-                    onProgress(0, 'QRコードを検出しました。Q-Oneの転送データを確認しています...');
+                const ratio = result.total ? Math.min(0.9, result.received / result.total * 0.9) : 0;
+
+                if (result.accepted) {
+                    const statusText = result.added
+                        ? `QR読み取り中... ${result.received} / ${result.total}（#${result.addedSeq + 1} 取得）`
+                        : `QR読み取り中... ${result.received} / ${result.total}（#${result.seq + 1} 取得済み）`;
+                    emitProgress(ratio, statusText, {
+                        received: result.received,
+                        total: result.total,
+                        receivedIndices: result.receivedIndices,
+                        addedSeq: result.addedSeq,
+                        currentSeq: result.seq,
+                        isNew: result.added,
+                        qrDetected: true,
+                        location: normalizedLocation
+                    });
+                } else {
+                    const currentRatio = collector.total
+                        ? Math.min(0.9, collector.received / collector.total * 0.9)
+                        : 0;
+                    emitProgress(currentRatio, 'QRコードを検出しました。Q-Oneの転送データを確認しています...', {
+                        received: collector.received,
+                        total: collector.total,
+                        receivedIndices: collector.receivedIndices,
+                        addedSeq: null,
+                        currentSeq: null,
+                        isNew: false,
+                        qrDetected: true,
+                        location: normalizedLocation
+                    });
                 }
 
                 if (result.complete && !settled) {
                     settled = true;
                     try {
-                        if (typeof onProgress === 'function') onProgress(0.95, '全パケットを受信しました。データを検証中...');
+                        emitProgress(0.95, '全パケットを受信しました。データを検証中...', {
+                            received: result.received,
+                            total: result.total,
+                            receivedIndices: result.receivedIndices,
+                            addedSeq: result.addedSeq,
+                            currentSeq: result.seq,
+                            isNew: result.added,
+                            qrDetected: true,
+                            location: normalizedLocation
+                        });
                         const restored = await collector.restore();
-                        if (typeof onProgress === 'function') onProgress(1, 'データの復元が完了しました。');
+                        emitProgress(1, 'データの復元が完了しました。', {
+                            received: result.received,
+                            total: result.total,
+                            receivedIndices: result.receivedIndices,
+                            addedSeq: null,
+                            currentSeq: null,
+                            isNew: false,
+                            qrDetected: false,
+                            location: null
+                        });
                         resultPromiseResolve(restored);
                     } catch (error) {
                         resultPromiseReject(error);
                     }
                 }
-            } else if (data.qrFound && typeof onProgress === 'function') {
-                onProgress(0, 'QRコードを検出しました。読み取りを続けています...');
+            } else if (data.qrFound) {
+                const currentRatio = collector.total
+                    ? Math.min(0.9, collector.received / collector.total * 0.9)
+                    : 0;
+                emitProgress(currentRatio, 'QRコードを検出しました。読み取りを続けています...', {
+                    received: collector.received,
+                    total: collector.total,
+                    receivedIndices: collector.receivedIndices,
+                    addedSeq: null,
+                    currentSeq: null,
+                    isNew: false,
+                    qrDetected: true,
+                    location: normalizedLocation
+                });
+            } else {
+                const currentRatio = collector.total
+                    ? Math.min(0.9, collector.received / collector.total * 0.9)
+                    : 0;
+                emitProgress(currentRatio, null, {
+                    received: collector.received,
+                    total: collector.total,
+                    receivedIndices: collector.receivedIndices,
+                    addedSeq: null,
+                    currentSeq: null,
+                    isNew: false,
+                    qrDetected: false,
+                    location: null
+                });
             }
         };
 
@@ -1170,14 +1249,14 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
             }
         }, 120);
 
-        if (typeof onProgress === 'function') onProgress(0, 'QR解析を準備しています...');
+        emitProgress(0, 'QR解析を準備しています...', { qrDetected: false, location: null });
         await workerReadyPromise;
         if (workerReadyTimeoutId !== null) {
             clearTimeout(workerReadyTimeoutId);
             workerReadyTimeoutId = null;
         }
         throwIfStopped();
-        if (typeof onProgress === 'function') onProgress(0, '画面内のQRコードを探しています...');
+        emitProgress(0, '画面内のQRコードを探しています...', { qrDetected: false, location: null });
 
         // 1フレームを処理している間は次を投入せず、完了次第できるだけ早く次を解析する。
         // 70ms間隔を上限とし、Version 40の重いデコードでも処理待ちが積み上がらない。
@@ -1202,6 +1281,8 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                     const imageData = frameContext.getImageData(0, 0, scanRegion.width, scanRegion.height);
                     const id = ++requestId;
                     pendingRequestId = id;
+                    pendingFrameWidth = scanRegion.width;
+                    pendingFrameHeight = scanRegion.height;
                     workerBusy = true;
                     worker.postMessage({
                         type: 'scan',
@@ -1225,8 +1306,7 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                 }
             }
 
-            if (!settled && !isStopped() && typeof onProgress === 'function' &&
-                scanCount > 0 && now - lastStatusAt >= 1100) {
+            if (!settled && !isStopped() && scanCount > 0 && now - lastStatusAt >= 1100) {
                 lastStatusAt = now;
                 const currentRatio = collector.total
                     ? Math.min(0.9, collector.received / collector.total * 0.9)
@@ -1234,7 +1314,14 @@ export async function decodeFromCamera(videoElement, onProgress, isStopped = () 
                 const status = collector.total
                     ? `QR読み取り中... ${collector.received} / ${collector.total}`
                     : `QRコードを探しています...（解析 ${scanCount} 回）`;
-                onProgress(currentRatio, status);
+                emitProgress(currentRatio, status, {
+                    received: collector.received,
+                    total: collector.total,
+                    receivedIndices: collector.receivedIndices,
+                    addedSeq: null,
+                    currentSeq: null,
+                    isNew: false
+                });
             }
             if (!settled && !isStopped()) scanLoopTimeoutId = setTimeout(scanFrame, 20);
         };
